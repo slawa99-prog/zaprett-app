@@ -106,6 +106,10 @@
     <string name="strategy_status_tested">проверка завершена</string>
     <string name="strategy_applied">Стратегия применена</string>
     <string name="begin_selection">Начать подбор</string>
+    <string name="selection_auto_apply">Подобрать и включить</string>
+    <string name="selection_auto_applied">Включена: %1$s</string>
+    <string name="selection_no_match">Рабочая стратегия не найдена. Прежние настройки восстановлены.</string>
+    <string name="selection_no_targets">Включите список с доменами и установите хотя бы одну стратегию.</string>
     <string name="begin_selection_snack">Начат подбор стратегии. Не закрывайте эту вкладку</string>
     <string name="change_probe_timeout">Изменить таймаут пробы</string>
     <string name="probe_timeout">Таймаут пробы</string>

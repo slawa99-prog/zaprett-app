@@ -248,7 +248,7 @@ fun RepoItem(
 
 
 @Composable
-fun StrategySelectionItem(strategy : StrategyCheckResult, prefs : SharedPreferences, context : Context, snackbarHostState : SnackbarHostState) {
+fun StrategySelectionItem(strategy : StrategyCheckResult, prefs : SharedPreferences, context : Context, snackbarHostState : SnackbarHostState, isTesting: Boolean) {
     val scope = rememberCoroutineScope()
     var expanded by remember { mutableStateOf(false) }
     ElevatedCard (
@@ -271,13 +271,13 @@ fun StrategySelectionItem(strategy : StrategyCheckResult, prefs : SharedPreferen
         {
             Row {
                 Text(
-                    text = strategy.path,
+                    text = strategy.name,
                     modifier = Modifier
                        .weight(1f)
                 )
                 FilledTonalIconButton(
                     onClick = {
-                        getActiveStrategy(prefs).getOrNull()?.file
+                        getActiveStrategy(prefs).getOrNull()?.manifestPath
                             ?.takeIf { it.isNotEmpty() }
                             ?.let { disableStrategy(it, prefs) }
                         enableStrategy(strategy.path, prefs)
@@ -287,7 +287,7 @@ fun StrategySelectionItem(strategy : StrategyCheckResult, prefs : SharedPreferen
                             )
                         }
                     },
-                    enabled = strategy.status == StrategyTestingStatus.Completed
+                    enabled = !isTesting && strategy.status == StrategyTestingStatus.Completed
                 ) {
                     Icon(
                         imageVector = Icons.Default.Check,

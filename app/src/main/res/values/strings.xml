@@ -112,6 +112,10 @@
     <string name="strategy_status_tested">testing ended</string>
     <string name="strategy_applied">Strategy applied</string>
     <string name="begin_selection">Begin selection</string>
+    <string name="selection_auto_apply">Find and enable the best strategy</string>
+    <string name="selection_auto_applied">Enabled: %1$s</string>
+    <string name="selection_no_match">No working strategy found. Previous settings restored.</string>
+    <string name="selection_no_targets">Enable a host list with valid domains and install at least one strategy.</string>
     <string name="begin_selection_snack">Strategy selection has begun. Please keep this tab open.</string>
     <string name="change_probe_timeout">Change probe timeout</string>
     <string name="probe_timeout">Probe timeout</string>

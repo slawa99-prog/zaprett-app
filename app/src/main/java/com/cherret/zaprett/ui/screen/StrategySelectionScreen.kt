@@ -12,6 +12,7 @@ import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
@@ -57,6 +58,8 @@ import androidx.navigation.NavController
 import com.cherret.zaprett.R
 import com.cherret.zaprett.ui.component.StrategySelectionItem
 import com.cherret.zaprett.ui.viewmodel.StrategySelectionViewModel
+import com.cherret.zaprett.data.ServiceType
+import com.cherret.zaprett.utils.getServiceType
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -69,6 +72,7 @@ fun StrategySelectionScreen(navController: NavController, vpnLauncher: ActivityR
     var showDialog = remember { mutableStateOf(false) }
     val requestVpnPermission by viewModel.requestVpnPermission.collectAsState()
     val error by viewModel.errorFlow.collectAsState()
+    val isTesting = viewModel.isTesting.value
 
     if (showDialog.value) {
         InfoAlert { showDialog.value = false }
@@ -93,7 +97,7 @@ fun StrategySelectionScreen(navController: NavController, vpnLauncher: ActivityR
             },
             title = { Text(stringResource(R.string.error_text)) },
             text = {
-                Text(stringResource(R.string.error_unknown))
+                Text(error)
             },
             dismissButton = {
                 TextButton(onClick = {
@@ -160,24 +164,42 @@ fun StrategySelectionScreen(navController: NavController, vpnLauncher: ActivityR
                 modifier = Modifier.fillMaxSize()
             ) {
                 item {
-                    Row (
+                    Column (
                         modifier = Modifier
                             .fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center
+                        horizontalAlignment = Alignment.CenterHorizontally
                     )
                     {
                         NoHostsCard(viewModel.noHostsCard)
                         FilledTonalButton(
+                            enabled = !isTesting,
                             onClick = {
                                 viewModel.viewModelScope.launch {
-                                    snackbarHostState.showSnackbar(
-                                        context.getString(R.string.begin_selection_snack)
-                                    )
+                                    launch { snackbarHostState.showSnackbar(context.getString(R.string.begin_selection_snack)) }
                                     viewModel.performTest()
                                 }
                             }
                         ) {
                             Text(stringResource(R.string.begin_selection))
+                        }
+                        if (getServiceType(prefs) != ServiceType.byedpi) {
+                            FilledTonalButton(
+                                enabled = !isTesting,
+                                onClick = {
+                                    viewModel.viewModelScope.launch {
+                                        launch { snackbarHostState.showSnackbar(context.getString(R.string.begin_selection_snack)) }
+                                        val selected = viewModel.performTest(autoApply = true)
+                                        snackbarHostState.currentSnackbarData?.dismiss()
+                                        if (selected != null) {
+                                            snackbarHostState.showSnackbar(context.getString(R.string.selection_auto_applied, selected))
+                                        } else if (viewModel.errorFlow.value.isEmpty()) {
+                                            snackbarHostState.showSnackbar(context.getString(R.string.selection_no_match))
+                                        }
+                                    }
+                                }
+                            ) {
+                                Text(stringResource(R.string.selection_auto_apply))
+                            }
                         }
                     }
                 }
@@ -197,7 +219,7 @@ fun StrategySelectionScreen(navController: NavController, vpnLauncher: ActivityR
                     }
                     else -> {
                         items(strategyStates, key = { it.path }) { item ->
-                            StrategySelectionItem(item, prefs, context, snackbarHostState)
+                            StrategySelectionItem(item, prefs, context, snackbarHostState, isTesting)
                         }
                     }
                 }

@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name" translatable="false">zaprett</string>
+    <string name="app_name" translatable="false">Zaprett Auto Test</string>
     <string name="title_home">Home</string>
     <string name="title_hosts">Hosts</string>
     <string name="title_strategies">Strategies</string>

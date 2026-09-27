@@ -97,8 +97,6 @@ fun SettingsScreen(navController: NavController, viewModel : SettingsViewModel =
     val serviceType = viewModel.serviceType.collectAsState()
     val updateOnBoot = remember { mutableStateOf(sharedPreferences.getBoolean("update_on_boot", true)) }
     val autoRestart = viewModel.autoRestart.collectAsState()
-    val autoUpdate = remember { mutableStateOf(sharedPreferences.getBoolean("auto_update", BuildConfig.auto_update)) }
-    val sendFirebaseAnalytics = remember { mutableStateOf(sharedPreferences.getBoolean("send_firebase_analytics", BuildConfig.send_firebase_analytics)) }
     val ipv6 = remember { mutableStateOf(sharedPreferences.getBoolean("ipv6",false)) }
     val openNoRootDialog = remember { mutableStateOf(false) }
     val openNoModuleDialog = remember { mutableStateOf(false) }
@@ -161,22 +159,6 @@ fun SettingsScreen(navController: NavController, viewModel : SettingsViewModel =
             onToggle = {
                 updateOnBoot.value = it
                 editor.putBoolean("update_on_boot", it).apply()
-            }
-        ),
-        Setting.Toggle(
-            title = stringResource(R.string.btn_autoupdate),
-            checked = autoUpdate.value,
-            onToggle = {
-                autoUpdate.value = it
-                editor.putBoolean("auto_update", it).apply()
-            }
-        ),
-        Setting.Toggle(
-            title = stringResource(R.string.btn_send_firebase_analytics),
-            checked = sendFirebaseAnalytics.value,
-            onToggle = {
-                sendFirebaseAnalytics.value = it
-                editor.putBoolean("send_firebase_analytics", it).apply()
             }
         ),
         Setting.Action(

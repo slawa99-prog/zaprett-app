@@ -68,9 +68,6 @@ import com.cherret.zaprett.utils.checkModuleInstallation
 import com.cherret.zaprett.utils.checkStoragePermission
 import com.cherret.zaprett.utils.getServiceType
 import com.cherret.zaprett.utils.setServiceType
-import com.google.firebase.Firebase
-import com.google.firebase.analytics.FirebaseAnalytics
-import com.google.firebase.analytics.analytics
 
 sealed class Screen(val route: String, @StringRes val nameResId: Int, val icon: ImageVector) {
     object home : Screen("home", R.string.title_home, Icons.Default.Home)
@@ -84,7 +81,6 @@ val hideNavBar = listOf("repo?source={source}", "debugScreen", "selectionScreen"
 class MainActivity : ComponentActivity() {
     private val viewModel: HomeViewModel by viewModels()
     private lateinit var notificationPermissionLauncher: ActivityResultLauncher<String>
-    private lateinit var firebaseAnalytics: FirebaseAnalytics
     private lateinit var vpnPermissionLauncher: ActivityResultLauncher<Intent>
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -95,7 +91,6 @@ class MainActivity : ComponentActivity() {
             }
         }
         notificationPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> }
-        firebaseAnalytics = Firebase.analytics
         enableEdgeToEdge()
         setContent {
             ZaprettTheme {
@@ -119,7 +114,6 @@ class MainActivity : ComponentActivity() {
                     )
                 }
                 var showWelcomeDialog by remember { mutableStateOf(sharedPreferences.getBoolean("welcome_dialog", true)) }
-                firebaseAnalytics.setAnalyticsCollectionEnabled(sharedPreferences.getBoolean("send_firebase_analytics", BuildConfig.send_firebase_analytics))
                 BottomBar()
                 if (showStoragePermissionDialog) {
                     PermissionDialog(

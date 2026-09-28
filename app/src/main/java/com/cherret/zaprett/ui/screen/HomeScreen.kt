@@ -74,6 +74,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.cherret.zaprett.BuildConfig
 import com.cherret.zaprett.R
+import com.cherret.zaprett.ui.component.tvDpadScroll
 import com.cherret.zaprett.data.ServiceStatusUI
 import com.cherret.zaprett.data.ServiceType
 import com.cherret.zaprett.ui.viewmodel.HomeViewModel
@@ -85,6 +86,7 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(viewModel: HomeViewModel = viewModel(), vpnLauncher: ActivityResultLauncher<Intent>) {
+    val scrollState = rememberScrollState()
     val context = LocalContext.current
     val sharedPreferences: SharedPreferences = remember { context.getSharedPreferences("settings", Context.MODE_PRIVATE) }
     val requestVpnPermission by viewModel.requestVpnPermission.collectAsState()
@@ -167,7 +169,8 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel(), vpnLauncher: ActivityResu
         content = { paddingValues ->
             Column(modifier = Modifier
                 .padding(paddingValues)
-                .verticalScroll(rememberScrollState())) {
+                .verticalScroll(scrollState)
+                .tvDpadScroll(scrollState)) {
                 ServiceStatusCard(viewModel, status, snackbarHostState, scope)
                 UpdateCard(updateAvailable) { viewModel.showUpdateDialog() }
                 if (showUpdateDialog) {

@@ -43,6 +43,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -77,7 +78,7 @@ sealed class Screen(val route: String, @StringRes val nameResId: Int, val icon: 
     object settings : Screen("settings", R.string.title_settings, Icons.Default.Settings)
 }
 val topLevelRoutes = listOf(Screen.home, Screen.hosts, Screen.strategies, Screen.ipsets, Screen.settings)
-val hideNavBar = listOf("repo?source={source}", "debugScreen", "selectionScreen")
+val hideNavBar = listOf("repo?source={source}", "debugScreen", "selectionScreen?autoStart={autoStart}")
 class MainActivity : ComponentActivity() {
     private val viewModel: HomeViewModel by viewModels()
     private lateinit var notificationPermissionLauncher: ActivityResultLauncher<String>
@@ -233,7 +234,15 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 composable("debugScreen") { DebugScreen(navController) }
-                composable("selectionScreen") { StrategySelectionScreen(navController, vpnPermissionLauncher) }
+                composable(
+                    "selectionScreen?autoStart={autoStart}",
+                    arguments = listOf(navArgument("autoStart") { type = NavType.BoolType; defaultValue = false })
+                ) { entry ->
+                    StrategySelectionScreen(
+                        navController, vpnPermissionLauncher,
+                        autoStart = entry.arguments?.getBoolean("autoStart") == true
+                    )
+                }
             }
         }
     }

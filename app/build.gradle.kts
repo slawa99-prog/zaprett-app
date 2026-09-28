@@ -14,8 +14,8 @@ android {
         applicationId = "com.slawa99.zaprett.auto"
         minSdk = 28
         targetSdk = 35
-        versionCode = 31
-        versionName = "3.2-auto-test1"
+        versionCode = 32
+        versionName = "3.2-auto-test2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {

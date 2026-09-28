@@ -6,4 +6,5 @@ data class StrategyCheckResult (
     val progress : Float,
     var domains: List<String>,
     val status : StrategyTestingStatus,
+    val problem: String = "",
 )

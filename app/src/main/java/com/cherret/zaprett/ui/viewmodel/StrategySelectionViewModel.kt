@@ -31,12 +31,17 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import com.topjohnwu.superuser.Shell
 import java.io.File
 import java.net.InetSocketAddress
 import java.net.Proxy
+import java.net.UnknownHostException
+import java.net.SocketTimeoutException
+import javax.net.ssl.SSLException
 import java.util.concurrent.TimeUnit
 
 class StrategySelectionViewModel(application: Application) : AndroidViewModel(application) {
@@ -51,6 +56,10 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
         private set
     var isTesting = mutableStateOf(false)
         private set
+    var diagnostic = mutableStateOf("")
+        private set
+
+    private data class ProbeResult(val domain: String, val reached: Boolean, val problem: String = "")
 
     init {
         loadStrategies()
@@ -59,7 +68,7 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
 
     fun buildHttpClient(): OkHttpClient {
         val builder = OkHttpClient.Builder()
-            .callTimeout(prefs.getLong("probe_timeout", 1000L), TimeUnit.MILLISECONDS)
+            .callTimeout(prefs.getLong("probe_timeout", 6000L).coerceAtLeast(6000L), TimeUnit.MILLISECONDS)
             .followRedirects(true)
             .followSslRedirects(true)
         if (getServiceType(prefs) == ServiceType.byedpi) {
@@ -85,24 +94,35 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
         }
     }
 
-    suspend fun testDomain(domain : String) : Boolean  = withContext(Dispatchers.IO) {
-        val request = Request.Builder().url("https://$domain").build()
+    private suspend fun testDomain(client: OkHttpClient, domain: String): ProbeResult = withContext(Dispatchers.IO) {
+        val request = Request.Builder().url("https://$domain/generate_204").build()
         try {
-            buildHttpClient().newCall(request).execute().use { response ->
-                response.isSuccessful
+            client.newCall(request).execute().use {
+                // Any HTTP response proves DNS, TCP and TLS worked. A 403/404 is not a DPI failure.
+                ProbeResult(domain, true)
             }
-        } catch (e: Exception) {
-            false
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            val cause = when (error) {
+                is UnknownHostException -> context.getString(R.string.selection_dns_error)
+                is SocketTimeoutException -> context.getString(R.string.selection_timeout_error)
+                is SSLException -> context.getString(R.string.selection_tls_error)
+                else -> error.javaClass.simpleName
+            }
+            ProbeResult(domain, false, cause)
         }
     }
 
-    suspend fun countReachable(index: Int, urls: List<String>): Float = coroutineScope {
-        if (urls.isEmpty()) return@coroutineScope 0f
-        val results: List<String> = urls.map { url ->
-            async { if (testDomain(url)) url else null }
-        }.awaitAll().filterNotNull()
-        strategyStates[index].domains = results
-        (results.size.toFloat() / urls.size.toFloat()).coerceIn(0f, 1f)
+    private suspend fun probe(client: OkHttpClient, domains: List<String>): List<ProbeResult> = coroutineScope {
+        val limit = Semaphore(4)
+        domains.map { domain -> async { limit.withPermit { testDomain(client, domain) } } }.awaitAll()
+    }
+
+    private suspend fun countReachable(client: OkHttpClient, index: Int, domains: List<String>): Float {
+        val reachable = probe(client, domains).filter { it.reached }.map { it.domain }
+        strategyStates[index].domains = reachable
+        return reachable.size.toFloat() / domains.size
     }
 
     suspend fun readActiveListsLines(): List<String> = withContext(Dispatchers.IO) {
@@ -125,8 +145,22 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
     private suspend fun probeTargets(): List<String> = readActiveListsLines()
         .map { it.substringBefore('#').trim().lowercase() }
         .filter { it.matches(Regex("(?:[a-z0-9-]+\\.)+[a-z]{2,}")) }
+        .mapNotNull { host ->
+            when (host) {
+                // Apex domains of CDN services are not reliable HTTPS test endpoints.
+                "googlevideo.com", "yt.be" -> null
+                "youtube.com" -> "www.youtube.com"
+                "ytimg.com" -> "i.ytimg.com"
+                "ggpht.com" -> "yt3.ggpht.com"
+                else -> host
+            }
+        }
         .distinct()
-        .take(20)
+        .sortedByDescending { host ->
+            host == "www.youtube.com" || host == "youtubei.googleapis.com" ||
+                host == "i.ytimg.com" || host == "yt3.ggpht.com" || host == "youtu.be"
+        }
+        .take(12)
 
     private suspend fun rootCommand(command: String) = withContext(Dispatchers.IO) {
         val result = Shell.cmd("zaprett $command 2>&1").exec()
@@ -154,6 +188,7 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
         if (isTesting.value) return null
         isTesting.value = true
         _errorFlow.value = ""
+        diagnostic.value = ""
         var selected: StrategyCheckResult? = null
         val serviceType = getServiceType(prefs)
         val originalPath = getActiveStrategy(prefs).getOrNull()?.manifestPath.orEmpty()
@@ -170,6 +205,14 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
                 wasRunning = rootRunning()
                 initialStatusKnown = true
                 if (wasRunning) rootCommand("stop")
+            }
+            val client = buildHttpClient()
+            val baseline = if (serviceType == ServiceType.byedpi) emptyList() else probe(client, targets)
+            val baselineCount = baseline.count { it.reached }
+            val firstProblem = baseline.firstOrNull { !it.reached }?.problem.orEmpty()
+            if (serviceType != ServiceType.byedpi) {
+                diagnostic.value = context.getString(R.string.selection_baseline, baselineCount, targets.size) +
+                    if (firstProblem.isEmpty()) "" else " · $firstProblem"
             }
             for (index in strategyStates.indices) {
                 val current = strategyStates[index]
@@ -190,31 +233,47 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
                     if (!connected) throw IllegalStateException("VPN did not start")
                     delay(150L)
                     try {
-                        val score = countReachable(index, targets)
+                        val score = countReachable(client, index, targets)
                         strategyStates[index] = current.copy(progress = score, status = StrategyTestingStatus.Completed)
                     } finally {
                         context.startService(Intent(context, ByeDpiVpnService::class.java).apply { action = "STOP_VPN" })
                         delay(200L)
                     }
                 } else {
-                    enableStrategy(current.path, prefs)
-                    currentPath = current.path
-                    if (getActiveStrategy(prefs).getOrNull()?.manifestPath != current.path) {
-                        throw IllegalStateException("Could not save strategy: ${current.name}")
-                    }
                     try {
+                        enableStrategy(current.path, prefs)
+                        currentPath = current.path
+                        if (getActiveStrategy(prefs).getOrNull()?.manifestPath != current.path) {
+                            throw IllegalStateException("Could not save strategy: ${current.name}")
+                        }
                         rootCommand("start")
                         waitForRootService()
-                        val score = countReachable(index, targets)
+                        val score = countReachable(client, index, targets)
                         strategyStates[index] = current.copy(progress = score, status = StrategyTestingStatus.Completed)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        strategyStates[index] = current.copy(
+                            status = StrategyTestingStatus.Failed,
+                            problem = error.message?.take(160).orEmpty()
+                        )
                     } finally {
-                        rootCommand("stop")
+                        if (rootRunning()) rootCommand("stop")
                     }
                 }
             }
             if (autoApply && serviceType != ServiceType.byedpi) {
-                selected = strategyStates.filter { it.status == StrategyTestingStatus.Completed && it.progress > 0f }
+                selected = strategyStates.filter {
+                    it.status == StrategyTestingStatus.Completed && it.progress * targets.size > baselineCount
+                }
                     .maxByOrNull { it.progress }
+            }
+            if (selected == null && autoApply) {
+                diagnostic.value += "\n" + if (baselineCount == targets.size) {
+                    context.getString(R.string.selection_baseline_reachable)
+                } else {
+                    context.getString(R.string.selection_no_improvement)
+                }
             }
         } catch (cancelled: CancellationException) {
             throw cancelled

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -43,6 +44,7 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.cherret.zaprett.R
 import com.cherret.zaprett.ui.component.RepoItem
+import com.cherret.zaprett.ui.component.tvDpadScroll
 import com.cherret.zaprett.ui.viewmodel.BaseRepoViewModel
 import kotlinx.serialization.SerializationException
 import java.io.IOException
@@ -50,6 +52,7 @@ import java.io.IOException
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RepoScreen(navController: NavController, viewModel: BaseRepoViewModel) {
+    val listState = rememberLazyListState()
     val context = LocalContext.current
     val items by viewModel.items.collectAsState()
     val repoList = items?.roots ?: emptyList()
@@ -182,8 +185,9 @@ fun RepoScreen(navController: NavController, viewModel: BaseRepoViewModel) {
                 modifier = Modifier.fillMaxSize()
             ) {
                 LazyColumn(
+                    state = listState,
                     contentPadding = paddingValues,
-                    modifier = Modifier.navigationBarsPadding().fillMaxSize()
+                    modifier = Modifier.navigationBarsPadding().fillMaxSize().tvDpadScroll(listState)
                 ) {
                     if (repoList.isEmpty()) {
                         item {

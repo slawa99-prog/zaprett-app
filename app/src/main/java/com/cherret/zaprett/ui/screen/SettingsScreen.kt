@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -83,6 +84,7 @@ import com.cherret.zaprett.ui.component.SettingDropDown
 import com.cherret.zaprett.ui.component.SettingsActionItem
 import com.cherret.zaprett.ui.component.SettingsItem
 import com.cherret.zaprett.ui.component.SettingsSection
+import com.cherret.zaprett.ui.component.tvDpadScroll
 import com.cherret.zaprett.ui.component.TextDialog
 import com.cherret.zaprett.ui.viewmodel.SettingsViewModel
 import com.cherret.zaprett.utils.getAppsListMode
@@ -91,6 +93,7 @@ import com.cherret.zaprett.utils.setAppsListMode
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(navController: NavController, viewModel : SettingsViewModel = viewModel()) {
+    val listState = rememberLazyListState()
     val context = LocalContext.current
     val sharedPreferences = remember { context.getSharedPreferences("settings", Context.MODE_PRIVATE) }
     val editor = remember { sharedPreferences.edit() }
@@ -187,17 +190,10 @@ fun SettingsScreen(navController: NavController, viewModel : SettingsViewModel =
                 showBlackDialog.value = true
             }
         ),
-        Setting.Section(stringResource(R.string.title_selection)),
-        Setting.Action(
-            title = stringResource(R.string.begin_selection),
-            onClick = {
-                navController.navigate("selectionScreen")
-            }
-        ),
         Setting.Action(
             title = stringResource(R.string.change_probe_timeout),
             onClick = {
-                textDialogValue.value = sharedPreferences.getLong("probe_timeout", 1000L).toString()
+                textDialogValue.value = sharedPreferences.getLong("probe_timeout", 6000L).toString()
                 showChangeProbeTimeout.value = true
             }
         ),
@@ -372,9 +368,11 @@ fun SettingsScreen(navController: NavController, viewModel : SettingsViewModel =
         },
         content = { paddingValues ->
             LazyColumn(
+                state = listState,
                 modifier = Modifier
                     .padding(paddingValues)
-                    .fillMaxSize(),
+                    .fillMaxSize()
+                    .tvDpadScroll(listState),
                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 25.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {

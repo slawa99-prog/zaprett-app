@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Scaffold
@@ -37,6 +38,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Info
@@ -52,11 +54,14 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.cherret.zaprett.R
 import com.cherret.zaprett.ui.component.StrategySelectionItem
+import com.cherret.zaprett.ui.component.tvDpadScroll
 import com.cherret.zaprett.ui.viewmodel.StrategySelectionViewModel
 import com.cherret.zaprett.data.ServiceType
 import com.cherret.zaprett.utils.getServiceType
@@ -64,8 +69,10 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun StrategySelectionScreen(navController: NavController, vpnLauncher: ActivityResultLauncher<Intent>, viewModel : StrategySelectionViewModel = viewModel()){
+fun StrategySelectionScreen(navController: NavController, vpnLauncher: ActivityResultLauncher<Intent>, autoStart: Boolean = false, viewModel : StrategySelectionViewModel = viewModel()){
     val snackbarHostState = remember { SnackbarHostState() }
+    val listState = rememberLazyListState()
+    val actionFocus = remember { FocusRequester() }
     val strategyStates = viewModel.strategyStates
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("settings", MODE_PRIVATE)
@@ -73,6 +80,26 @@ fun StrategySelectionScreen(navController: NavController, vpnLauncher: ActivityR
     val requestVpnPermission by viewModel.requestVpnPermission.collectAsState()
     val error by viewModel.errorFlow.collectAsState()
     val isTesting = viewModel.isTesting.value
+    val diagnostic = viewModel.diagnostic.value
+
+    suspend fun runAutoTest() {
+        val progress = viewModel.viewModelScope.launch {
+            snackbarHostState.showSnackbar(context.getString(R.string.begin_selection_snack))
+        }
+        val selected = try { viewModel.performTest(autoApply = true) }
+        finally {
+            progress.cancel()
+            snackbarHostState.currentSnackbarData?.dismiss()
+        }
+        if (selected != null) {
+            snackbarHostState.showSnackbar(context.getString(R.string.selection_auto_applied, selected))
+        }
+    }
+
+    LaunchedEffect(autoStart) {
+        actionFocus.requestFocus()
+        if (autoStart && !viewModel.noHostsCard.value) runAutoTest()
+    }
 
     if (showDialog.value) {
         InfoAlert { showDialog.value = false }
@@ -157,11 +184,12 @@ fun StrategySelectionScreen(navController: NavController, vpnLauncher: ActivityR
         snackbarHost = { SnackbarHost(snackbarHostState) },
         content = { paddingValues ->
             LazyColumn (
+                state = listState,
                 contentPadding = PaddingValues(
                     top = paddingValues.calculateTopPadding(),
                     bottom = paddingValues.calculateBottomPadding() + 40.dp
                 ),
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier.fillMaxSize().tvDpadScroll(listState)
             ) {
                 item {
                     Column (
@@ -171,43 +199,43 @@ fun StrategySelectionScreen(navController: NavController, vpnLauncher: ActivityR
                     )
                     {
                         NoHostsCard(viewModel.noHostsCard)
-                        FilledTonalButton(
-                            enabled = !isTesting,
-                            onClick = {
-                                viewModel.viewModelScope.launch {
-                                    launch { snackbarHostState.showSnackbar(context.getString(R.string.begin_selection_snack)) }
-                                    viewModel.performTest()
-                                }
-                            }
-                        ) {
-                            Text(stringResource(R.string.begin_selection))
-                        }
                         if (getServiceType(prefs) != ServiceType.byedpi) {
                             FilledTonalButton(
                                 enabled = !isTesting,
+                                modifier = Modifier.focusRequester(actionFocus),
                                 onClick = {
                                     viewModel.viewModelScope.launch {
-                                        launch { snackbarHostState.showSnackbar(context.getString(R.string.begin_selection_snack)) }
-                                        val selected = viewModel.performTest(autoApply = true)
-                                        snackbarHostState.currentSnackbarData?.dismiss()
-                                        if (selected != null) {
-                                            snackbarHostState.showSnackbar(context.getString(R.string.selection_auto_applied, selected))
-                                        } else if (viewModel.errorFlow.value.isEmpty()) {
-                                            snackbarHostState.showSnackbar(context.getString(R.string.selection_no_match))
-                                        }
+                                        runAutoTest()
                                     }
                                 }
                             ) {
-                                Text(stringResource(R.string.selection_auto_apply))
+                                Text(stringResource(R.string.selection_retry))
+                            }
+                        } else {
+                            FilledTonalButton(
+                                enabled = !isTesting,
+                                modifier = Modifier.focusRequester(actionFocus),
+                                onClick = {
+                                    viewModel.viewModelScope.launch { viewModel.performTest() }
+                                }
+                            ) {
+                                Text(stringResource(R.string.begin_selection))
                             }
                         }
+                        if (diagnostic.isNotBlank()) {
+                            Text(diagnostic, modifier = Modifier.fillMaxWidth().padding(16.dp))
+                        }
+                        Text(
+                            stringResource(R.string.selection_http_only),
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                        )
                     }
                 }
                 when {
                     strategyStates.isEmpty() -> {
                         item {
-                            Box(
-                                modifier = Modifier.fillParentMaxSize(),
+                                Box(
+                                    modifier = Modifier.fillMaxWidth(),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(

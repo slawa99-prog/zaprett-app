@@ -10,12 +10,16 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -27,6 +31,8 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -46,6 +52,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
@@ -59,6 +67,7 @@ import com.cherret.zaprett.R
 import com.cherret.zaprett.data.ServiceType
 import com.cherret.zaprett.ui.component.GenerateManifestDialog
 import com.cherret.zaprett.ui.component.ListSwitchItem
+import com.cherret.zaprett.ui.component.tvDpadScroll
 import com.cherret.zaprett.ui.viewmodel.StrategyViewModel
 import com.cherret.zaprett.utils.getManifestsPath
 import com.cherret.zaprett.utils.getServiceType
@@ -71,6 +80,9 @@ fun StrategyScreen(navController: NavController, viewModel: StrategyViewModel = 
     val sharedPreferences = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+    val listState = rememberLazyListState()
+    val actionFocus = remember { FocusRequester() }
+    val serviceType = getServiceType(sharedPreferences)
     val state by viewModel.listUiState.collectAsState()
     val showPermissionDialog by viewModel.showNoPermissionDialog.collectAsState()
     val filePickerLauncher = rememberLauncherForActivityResult(
@@ -91,6 +103,8 @@ fun StrategyScreen(navController: NavController, viewModel: StrategyViewModel = 
 
     LaunchedEffect(Unit) {
         viewModel.refresh()
+        viewModel.installYouTubePackIfNeeded()
+        if (serviceType == ServiceType.nfqws) actionFocus.requestFocus()
     }
 
     if (!state.error.isNullOrEmpty()) {
@@ -146,17 +160,46 @@ fun StrategyScreen(navController: NavController, viewModel: StrategyViewModel = 
                 modifier = Modifier.fillMaxSize()
             ) {
                 LazyColumn(
+                    state = listState,
                     contentPadding = PaddingValues(
                         top = paddingValues.calculateTopPadding(),
                         bottom = paddingValues.calculateBottomPadding() + 80.dp
                     ),
-                    modifier = Modifier.navigationBarsPadding().fillMaxSize()
+                    modifier = Modifier.navigationBarsPadding().fillMaxSize().tvDpadScroll(listState)
                 ) {
+                    item {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text(stringResource(R.string.youtube_selection_title), style = MaterialTheme.typography.titleLarge)
+                            when (serviceType) {
+                                ServiceType.nfqws -> {
+                                    Text(viewModel.packStatus.value.ifBlank { stringResource(R.string.youtube_pack_ready) })
+                                    FilledTonalButton(
+                                        enabled = !viewModel.isInstallingPack.value && state.items.isNotEmpty(),
+                                        modifier = Modifier.focusRequester(actionFocus),
+                                        onClick = { navController.navigate("selectionScreen?autoStart=true") }
+                                    ) {
+                                        Text(stringResource(R.string.youtube_auto_search))
+                                    }
+                                    FilledTonalButton(
+                                        enabled = !viewModel.isInstallingPack.value,
+                                        onClick = { viewModel.installYouTubePackIfNeeded(force = true) }
+                                    ) {
+                                        Text(stringResource(R.string.youtube_pack_retry))
+                                    }
+                                }
+                                ServiceType.nfqws2 -> Text(stringResource(R.string.youtube_pack_nfqws2))
+                                ServiceType.byedpi -> Text(stringResource(R.string.youtube_pack_root))
+                            }
+                        }
+                    }
                     when {
                         state.items.isEmpty() -> {
                             item {
                                 Box(
-                                    modifier = Modifier.fillParentMaxSize(),
+                                    modifier = Modifier.fillMaxSize(),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text(

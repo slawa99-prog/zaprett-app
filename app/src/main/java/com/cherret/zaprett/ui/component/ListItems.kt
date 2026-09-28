@@ -9,11 +9,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -303,6 +300,9 @@ fun StrategySelectionItem(strategy : StrategyCheckResult, prefs : SharedPreferen
                     fontSize = 12.sp,
                 )
             }
+            if (strategy.problem.isNotEmpty()) {
+                Text(text = strategy.problem, style = MaterialTheme.typography.bodySmall)
+            }
             Row (
                 modifier = Modifier
                     .fillMaxWidth()
@@ -343,8 +343,8 @@ fun StrategySelectionItem(strategy : StrategyCheckResult, prefs : SharedPreferen
                 Text(
                     text = stringResource(R.string.selection_available_domains)
                 )
-                LazyColumn(modifier = Modifier.heightIn(max = 300.dp)) {
-                    items(strategy.domains) { item ->
+                Column {
+                    strategy.domains.forEach { item ->
                         Card(
                             elevation = CardDefaults.cardElevation(4.dp),
                             modifier = Modifier

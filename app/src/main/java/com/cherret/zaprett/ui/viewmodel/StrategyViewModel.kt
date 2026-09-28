@@ -2,7 +2,9 @@ package com.cherret.zaprett.ui.viewmodel
 
 import android.app.Application
 import android.content.SharedPreferences
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.material3.SnackbarHostState
+import androidx.lifecycle.viewModelScope
 import com.cherret.zaprett.byedpi.ByeDpiVpnService
 import com.cherret.zaprett.data.ListUiItem
 import com.cherret.zaprett.data.ServiceStatus
@@ -18,11 +20,43 @@ import com.cherret.zaprett.utils.getAllNfqws2Strategies
 import com.cherret.zaprett.utils.getAllNfqwsStrategies
 import com.cherret.zaprett.utils.getServiceType
 import com.cherret.zaprett.utils.getStatus
+import com.cherret.zaprett.utils.checkStoragePermission
+import com.cherret.zaprett.utils.YouTubePackInstaller
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import java.io.File
 import kotlin.emptyArray
 
 class StrategyViewModel(application: Application): BaseListsViewModel(application) {
+    val packStatus = mutableStateOf("")
+    val isInstallingPack = mutableStateOf(false)
+
+    fun installYouTubePackIfNeeded(force: Boolean = false) {
+        if (isInstallingPack.value || getServiceType(sharedPreferences) != ServiceType.nfqws ||
+            (!force && sharedPreferences.getBoolean(YouTubePackInstaller.preferenceKey, false))) return
+        if (!checkStoragePermission(context)) {
+            packStatus.value = context.getString(com.cherret.zaprett.R.string.youtube_pack_permission)
+            return
+        }
+        isInstallingPack.value = true
+        packStatus.value = context.getString(com.cherret.zaprett.R.string.youtube_pack_loading, 0, 13)
+        viewModelScope.launch {
+            try {
+                YouTubePackInstaller.install(sharedPreferences) { done, total ->
+                    packStatus.value = context.getString(com.cherret.zaprett.R.string.youtube_pack_loading, done, total)
+                }
+                packStatus.value = context.getString(com.cherret.zaprett.R.string.youtube_pack_ready)
+            } catch (error: Exception) {
+                packStatus.value = context.getString(
+                    com.cherret.zaprett.R.string.youtube_pack_failed,
+                    error.message ?: context.getString(com.cherret.zaprett.R.string.error_unknown)
+                )
+            } finally {
+                isInstallingPack.value = false
+                refresh()
+            }
+        }
+    }
     private val strategyProvider: StrategyProvider
         get() = when(getServiceType(sharedPreferences)) {
             ServiceType.nfqws -> NfqwsStrategyProvider()

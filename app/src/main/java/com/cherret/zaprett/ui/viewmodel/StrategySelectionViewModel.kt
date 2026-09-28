@@ -114,9 +114,14 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
         }
     }
 
-    private suspend fun probe(client: OkHttpClient, domains: List<String>): List<ProbeResult> = coroutineScope {
-        val limit = Semaphore(4)
-        domains.map { domain -> async { limit.withPermit { testDomain(client, domain) } } }.awaitAll()
+    private suspend fun probe(client: OkHttpClient, domains: List<String>): List<ProbeResult> = try {
+        coroutineScope {
+            val limit = Semaphore(4)
+            domains.map { domain -> async { limit.withPermit { testDomain(client, domain) } } }.awaitAll()
+        }
+    } finally {
+        // Reusing a TLS connection after changing nfqws would invalidate the comparison.
+        client.connectionPool.evictAll()
     }
 
     private suspend fun countReachable(client: OkHttpClient, index: Int, domains: List<String>): Float {
@@ -206,8 +211,7 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
                 initialStatusKnown = true
                 if (wasRunning) rootCommand("stop")
             }
-            val client = buildHttpClient()
-            val baseline = if (serviceType == ServiceType.byedpi) emptyList() else probe(client, targets)
+            val baseline = if (serviceType == ServiceType.byedpi) emptyList() else probe(buildHttpClient(), targets)
             val baselineCount = baseline.count { it.reached }
             val firstProblem = baseline.firstOrNull { !it.reached }?.problem.orEmpty()
             if (serviceType != ServiceType.byedpi) {
@@ -233,7 +237,7 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
                     if (!connected) throw IllegalStateException("VPN did not start")
                     delay(150L)
                     try {
-                        val score = countReachable(client, index, targets)
+                        val score = countReachable(buildHttpClient(), index, targets)
                         strategyStates[index] = current.copy(progress = score, status = StrategyTestingStatus.Completed)
                     } finally {
                         context.startService(Intent(context, ByeDpiVpnService::class.java).apply { action = "STOP_VPN" })
@@ -248,7 +252,7 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
                         }
                         rootCommand("start")
                         waitForRootService()
-                        val score = countReachable(client, index, targets)
+                        val score = countReachable(buildHttpClient(), index, targets)
                         strategyStates[index] = current.copy(progress = score, status = StrategyTestingStatus.Completed)
                     } catch (cancelled: CancellationException) {
                         throw cancelled

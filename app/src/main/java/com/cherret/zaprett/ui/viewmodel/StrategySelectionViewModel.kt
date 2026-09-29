@@ -121,7 +121,10 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
         }
     } finally {
         // Reusing a TLS connection after changing nfqws would invalidate the comparison.
-        client.connectionPool.evictAll()
+        // Closing pooled sockets can perform network I/O on Android as well.
+        withContext(NonCancellable + Dispatchers.IO) {
+            client.connectionPool.evictAll()
+        }
     }
 
     private suspend fun countReachable(client: OkHttpClient, index: Int, domains: List<String>): Float {

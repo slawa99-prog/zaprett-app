@@ -131,21 +131,48 @@ fun getConfigFile(): File {
     return getZaprettPath().resolve("config.json")
 }
 
-fun setStartOnBoot(prefs: SharedPreferences, callback: (Boolean) -> Unit) {
-    if (getServiceType(prefs) != ServiceType.byedpi) {
-        Shell.cmd("zaprett set-autostart").submit { result ->
-            if (result.out.isNotEmpty() && result.out.toString().contains("true")) callback(true) else callback(false)
-        }
+private fun parseStartOnBoot(result: com.topjohnwu.superuser.Shell.Result): Result<Boolean> {
+    if (!result.isSuccess) {
+        return Result.failure(IllegalStateException(result.out.joinToString("\n").ifBlank { "zaprett autostart failed" }))
+    }
+    return when (result.out.lastOrNull()?.trim()) {
+        "true" -> Result.success(true)
+        "false" -> Result.success(false)
+        else -> Result.failure(IllegalStateException("Unexpected autostart response: ${result.out.joinToString(" ")}"))
     }
 }
 
-fun getStartOnBoot(prefs: SharedPreferences, callback: (Boolean) -> Unit) {
-    if (getServiceType(prefs) != ServiceType.byedpi) {
-        Shell.cmd("zaprett get-autostart").submit { result ->
-            if (result.out.isNotEmpty() && result.out.toString().contains("true")) callback(true) else callback(false)
-        }
-    } else {
-        callback(false)
+fun getStartOnBoot(prefs: SharedPreferences, callback: (Result<Boolean>) -> Unit) {
+    if (getServiceType(prefs) == ServiceType.byedpi) {
+        callback(Result.success(false))
+        return
+    }
+    Shell.cmd("zaprett get-autostart 2>&1").submit { result ->
+        callback(parseStartOnBoot(result))
+    }
+}
+
+fun setStartOnBoot(prefs: SharedPreferences, enabled: Boolean, callback: (Result<Boolean>) -> Unit) {
+    if (getServiceType(prefs) == ServiceType.byedpi) {
+        callback(Result.failure(IllegalStateException("Autostart requires the zaprett module")))
+        return
+    }
+    getStartOnBoot(prefs) { current ->
+        current.fold(
+            onSuccess = { alreadyEnabled ->
+                if (alreadyEnabled == enabled) callback(Result.success(enabled))
+                else Shell.cmd("zaprett set-autostart 2>&1").submit { result ->
+                    parseStartOnBoot(result).fold(
+                        onSuccess = { actual ->
+                            if (actual == enabled) callback(Result.success(actual))
+                            else callback(Result.failure(IllegalStateException("Autostart setting did not change")))
+                        },
+                        onFailure = { callback(Result.failure(it)) }
+                    )
+                }
+            },
+            onFailure = { callback(Result.failure(it)) }
+        )
     }
 }
 

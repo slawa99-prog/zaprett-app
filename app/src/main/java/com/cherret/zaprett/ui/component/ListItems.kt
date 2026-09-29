@@ -25,9 +25,7 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ProgressIndicatorDefaults
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -303,29 +301,15 @@ fun StrategySelectionItem(strategy : StrategyCheckResult, prefs : SharedPreferen
             if (strategy.problem.isNotEmpty()) {
                 Text(text = strategy.problem, style = MaterialTheme.typography.bodySmall)
             }
-            Row (
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.End
-            ) {
-                LinearProgressIndicator(
-                    modifier = Modifier
-                        .weight(1f),
-
-                    progress = {
-                        strategy.progress
-                    },
-                    color = ProgressIndicatorDefaults.linearColor,
-                    trackColor = ProgressIndicatorDefaults.linearTrackColor,
-                    strokeCap = ProgressIndicatorDefaults.LinearStrokeCap,
-                )
+            if (strategy.status == StrategyTestingStatus.Completed && strategy.checkedDomains > 0) {
                 Text(
-                    text = "${(strategy.progress*100).toInt()}%",
-                    modifier = Modifier
-                        .padding(start = 16.dp),
-
+                    text = stringResource(
+                        R.string.selection_reachability,
+                        strategy.domains.size,
+                        strategy.checkedDomains,
+                        (strategy.progress * 100).toInt()
+                    ),
+                    modifier = Modifier.padding(top = 8.dp)
                 )
             }
         }

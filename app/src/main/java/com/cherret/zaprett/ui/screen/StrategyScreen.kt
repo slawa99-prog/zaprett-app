@@ -67,6 +67,7 @@ import com.cherret.zaprett.R
 import com.cherret.zaprett.data.ServiceType
 import com.cherret.zaprett.ui.component.GenerateManifestDialog
 import com.cherret.zaprett.ui.component.ListSwitchItem
+import com.cherret.zaprett.ui.component.SettingsItem
 import com.cherret.zaprett.ui.component.tvDpadScroll
 import com.cherret.zaprett.ui.viewmodel.StrategyViewModel
 import com.cherret.zaprett.utils.getManifestsPath
@@ -105,6 +106,7 @@ fun StrategyScreen(navController: NavController, viewModel: StrategyViewModel = 
     LaunchedEffect(Unit) {
         viewModel.refresh()
         viewModel.installYouTubePackIfNeeded()
+        viewModel.refreshStartOnBoot()
         if (serviceType == ServiceType.nfqws) actionFocus.requestFocus()
     }
 
@@ -188,6 +190,24 @@ fun StrategyScreen(navController: NavController, viewModel: StrategyViewModel = 
                                         onClick = { viewModel.installYouTubePackIfNeeded(force = true) }
                                     ) {
                                         Text(stringResource(R.string.youtube_pack_retry))
+                                    }
+                                    val bootEnabled = viewModel.startOnBoot.value
+                                    if (bootEnabled != null) {
+                                        SettingsItem(
+                                            title = stringResource(R.string.btn_autorestart),
+                                            checked = bootEnabled,
+                                            onToggle = viewModel::changeStartOnBoot,
+                                            onCheckedChange = viewModel::changeStartOnBoot
+                                        )
+                                    } else if (viewModel.startOnBootBusy.value) {
+                                        Text(stringResource(R.string.autostart_checking))
+                                    }
+                                    Text(stringResource(R.string.autostart_detail), style = MaterialTheme.typography.bodySmall)
+                                    if (viewModel.startOnBootError.value.isNotBlank()) {
+                                        Text(viewModel.startOnBootError.value, color = MaterialTheme.colorScheme.error)
+                                        FilledTonalButton(onClick = viewModel::refreshStartOnBoot) {
+                                            Text(stringResource(R.string.autostart_retry))
+                                        }
                                     }
                                 }
                                 ServiceType.nfqws2 -> Text(stringResource(R.string.youtube_pack_nfqws2))

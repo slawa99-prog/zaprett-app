@@ -19,7 +19,9 @@ import com.cherret.zaprett.utils.getAllByeDPIStrategies
 import com.cherret.zaprett.utils.getAllNfqws2Strategies
 import com.cherret.zaprett.utils.getAllNfqwsStrategies
 import com.cherret.zaprett.utils.getServiceType
+import com.cherret.zaprett.utils.getStartOnBoot
 import com.cherret.zaprett.utils.getStatus
+import com.cherret.zaprett.utils.setStartOnBoot
 import com.cherret.zaprett.utils.checkStoragePermission
 import com.cherret.zaprett.utils.YouTubePackInstaller
 import kotlinx.coroutines.CoroutineScope
@@ -30,6 +32,31 @@ import kotlin.emptyArray
 class StrategyViewModel(application: Application): BaseListsViewModel(application) {
     val packStatus = mutableStateOf("")
     val isInstallingPack = mutableStateOf(false)
+    val startOnBoot = mutableStateOf<Boolean?>(null)
+    val startOnBootBusy = mutableStateOf(false)
+    val startOnBootError = mutableStateOf("")
+
+    fun refreshStartOnBoot() {
+        if (getServiceType(sharedPreferences) != ServiceType.nfqws || startOnBootBusy.value) return
+        startOnBootBusy.value = true
+        startOnBootError.value = ""
+        getStartOnBoot(sharedPreferences) { result ->
+            result.onSuccess { startOnBoot.value = it }
+                .onFailure { startOnBootError.value = it.message.orEmpty() }
+            startOnBootBusy.value = false
+        }
+    }
+
+    fun changeStartOnBoot(enabled: Boolean) {
+        if (startOnBootBusy.value || startOnBoot.value == null) return
+        startOnBootBusy.value = true
+        startOnBootError.value = ""
+        setStartOnBoot(sharedPreferences, enabled) { result ->
+            result.onSuccess { startOnBoot.value = it }
+                .onFailure { startOnBootError.value = it.message.orEmpty() }
+            startOnBootBusy.value = false
+        }
+    }
 
     fun installYouTubePackIfNeeded(force: Boolean = false) {
         if (isInstallingPack.value || getServiceType(sharedPreferences) != ServiceType.nfqws ||

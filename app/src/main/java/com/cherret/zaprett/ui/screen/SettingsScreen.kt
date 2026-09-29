@@ -99,7 +99,8 @@ fun SettingsScreen(navController: NavController, viewModel : SettingsViewModel =
     val editor = remember { sharedPreferences.edit() }
     val serviceType = viewModel.serviceType.collectAsState()
     val updateOnBoot = remember { mutableStateOf(sharedPreferences.getBoolean("update_on_boot", true)) }
-    val autoRestart = viewModel.autoRestart.collectAsState()
+    val startOnBoot = viewModel.startOnBoot.collectAsState()
+    val startOnBootError by viewModel.startOnBootError.collectAsState()
     val ipv6 = remember { mutableStateOf(sharedPreferences.getBoolean("ipv6",false)) }
     val openNoRootDialog = remember { mutableStateOf(false) }
     val openNoModuleDialog = remember { mutableStateOf(false) }
@@ -228,13 +229,11 @@ fun SettingsScreen(navController: NavController, viewModel : SettingsViewModel =
             }
         ),
         Setting.Section(title = stringResource(R.string.zapret_section)),
-        Setting.Toggle(
+        if (serviceType.value != ServiceType.byedpi) Setting.Toggle(
             title = stringResource(R.string.btn_autorestart),
-            checked = autoRestart.value,
-            onToggle = {
-                viewModel.handleAutoRestart(context)
-            }
-        ),
+            checked = startOnBoot.value,
+            onToggle = viewModel::handleStartOnBoot
+        ) else Setting.Section(stringResource(R.string.zapret_root_only)),
         Setting.Action(
             title = stringResource(R.string.bins_repo),
             onClick = {
@@ -262,6 +261,14 @@ fun SettingsScreen(navController: NavController, viewModel : SettingsViewModel =
             title = stringResource(R.string.error_no_module_title),
             message = stringResource(R.string.error_no_module_message),
             onDismiss = { openNoModuleDialog.value = false }
+        )
+    }
+
+    if (startOnBootError.isNotBlank()) {
+        InfoDialog(
+            title = stringResource(R.string.error_text),
+            message = startOnBootError,
+            onDismiss = viewModel::clearStartOnBootError
         )
     }
 

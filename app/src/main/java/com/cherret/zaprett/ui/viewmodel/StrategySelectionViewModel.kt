@@ -40,7 +40,7 @@ import java.io.File
 import java.net.InetSocketAddress
 import java.net.Proxy
 import java.net.UnknownHostException
-import java.net.SocketTimeoutException
+import java.io.InterruptedIOException
 import javax.net.ssl.SSLException
 import java.util.concurrent.TimeUnit
 
@@ -106,7 +106,7 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
         } catch (error: Exception) {
             val cause = when (error) {
                 is UnknownHostException -> context.getString(R.string.selection_dns_error)
-                is SocketTimeoutException -> context.getString(R.string.selection_timeout_error)
+                is InterruptedIOException -> context.getString(R.string.selection_timeout_error)
                 is SSLException -> context.getString(R.string.selection_tls_error)
                 else -> error.javaClass.simpleName
             }
@@ -270,7 +270,7 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
                     delay(150L)
                     try {
                         val score = countReachable(buildHttpClient(), index, targets)
-                        strategyStates[index] = current.copy(progress = score, status = StrategyTestingStatus.Completed)
+                        strategyStates[index] = current.copy(progress = score, status = StrategyTestingStatus.Completed, checkedDomains = targets.size)
                     } finally {
                         context.startService(Intent(context, ByeDpiVpnService::class.java).apply { action = "STOP_VPN" })
                         delay(200L)
@@ -285,7 +285,7 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
                         rootCommand("start")
                         waitForRootService()
                         val score = countReachable(buildHttpClient(), index, targets)
-                        strategyStates[index] = current.copy(progress = score, status = StrategyTestingStatus.Completed)
+                        strategyStates[index] = current.copy(progress = score, status = StrategyTestingStatus.Completed, checkedDomains = targets.size)
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (error: Exception) {
@@ -360,6 +360,7 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
                     }
                 }
             }
+            selected?.let { diagnostic.value += "\n" + context.getString(R.string.selection_auto_applied, it.name) }
             val sorted = strategyStates.sortedByDescending { it.progress }
             strategyStates.clear()
             strategyStates.addAll(sorted)

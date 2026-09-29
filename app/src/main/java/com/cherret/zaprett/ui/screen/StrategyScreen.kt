@@ -4,7 +4,6 @@ package com.cherret.zaprett.ui.screen
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.ActivityResultLauncher
@@ -85,6 +84,7 @@ fun StrategyScreen(navController: NavController, viewModel: StrategyViewModel = 
     val actionFocus = remember { FocusRequester() }
     val serviceType = getServiceType(sharedPreferences)
     val state by viewModel.listUiState.collectAsState()
+    var logCopied by remember(state.error) { mutableStateOf(false) }
     val showPermissionDialog by viewModel.showNoPermissionDialog.collectAsState()
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -115,18 +115,17 @@ fun StrategyScreen(navController: NavController, viewModel: StrategyViewModel = 
             },
             title = { Text(stringResource(R.string.error_text)) },
             text = {
-                Text(stringResource(R.string.error_unknown))
+                Text(state.error.orEmpty())
             },
             dismissButton = {
                 TextButton(onClick = {
                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                     val clip: ClipData = ClipData.newPlainText("Error log", state.error)
                     clipboard.setPrimaryClip(clip)
-                    if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.S) {
-                        Toast.makeText(context, context.getString(R.string.log_copied), Toast.LENGTH_SHORT).show()
-                    }
+                    logCopied = true
+                    Toast.makeText(context, context.getString(R.string.log_copied), Toast.LENGTH_SHORT).show()
                 }) {
-                    Text(stringResource(R.string.btn_copy_log))
+                    Text(stringResource(if (logCopied) R.string.log_copied else R.string.btn_copy_log))
                 }
             },
             confirmButton = {

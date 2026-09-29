@@ -7,7 +7,6 @@ import android.content.Context
 import android.content.Context.MODE_PRIVATE
 import android.content.Intent
 import android.net.VpnService
-import android.os.Build
 import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
 import androidx.compose.foundation.layout.Arrangement
@@ -79,6 +78,7 @@ fun StrategySelectionScreen(navController: NavController, vpnLauncher: ActivityR
     var showDialog = remember { mutableStateOf(false) }
     val requestVpnPermission by viewModel.requestVpnPermission.collectAsState()
     val error by viewModel.errorFlow.collectAsState()
+    var logCopied by remember(error) { mutableStateOf(false) }
     val isTesting = viewModel.isTesting.value
     val diagnostic = viewModel.diagnostic.value
 
@@ -131,11 +131,10 @@ fun StrategySelectionScreen(navController: NavController, vpnLauncher: ActivityR
                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                     val clip: ClipData = ClipData.newPlainText("Error log", error)
                     clipboard.setPrimaryClip(clip)
-                    if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.S) {
-                        Toast.makeText(context, context.getString(R.string.log_copied), Toast.LENGTH_SHORT).show()
-                    }
+                    logCopied = true
+                    Toast.makeText(context, context.getString(R.string.log_copied), Toast.LENGTH_SHORT).show()
                 }) {
-                    Text(stringResource(R.string.btn_copy_log))
+                    Text(stringResource(if (logCopied) R.string.log_copied else R.string.btn_copy_log))
                 }
             },
             confirmButton = {

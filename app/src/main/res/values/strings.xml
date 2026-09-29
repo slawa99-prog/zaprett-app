@@ -134,6 +134,15 @@
     <string name="selection_auto_applied">Enabled: %1$s</string>
     <string name="selection_no_match">No working strategy found. Previous settings restored.</string>
     <string name="selection_no_targets">Enable a host list with valid domains and install at least one strategy.</string>
+    <string name="selection_root_required">Root access was not granted to this test app. Allow Zaprett Auto Test in Magisk.</string>
+    <string name="selection_module_required">The zaprett command is unavailable to this app. Check that the Magisk module is enabled and restart the device.</string>
+    <string name="selection_nfqws_required">Choose nfqws mode in Settings before running YouTube auto selection.</string>
+    <string name="selection_error_step">Stopped at %1$s: %2$s</string>
+    <string name="selection_preparing">preparation</string>
+    <string name="selection_checking_service">checking the zaprett service</string>
+    <string name="selection_checking_baseline">checking the connection without a new strategy</string>
+    <string name="selection_restoring">restoring the previous settings</string>
+    <string name="selection_skipped">Not tested because the selection stopped</string>
     <string name="begin_selection_snack">Strategy selection has begun. Please keep this tab open.</string>
     <string name="change_probe_timeout">Change probe timeout</string>
     <string name="probe_timeout">Probe timeout</string>

@@ -32,16 +32,15 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.core.content.ContextCompat
-import androidx.core.content.edit
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -49,7 +48,6 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.cherret.zaprett.data.ServiceType
 import com.cherret.zaprett.ui.screen.DebugScreen
 import com.cherret.zaprett.ui.screen.HomeScreen
 import com.cherret.zaprett.ui.screen.HostsScreen
@@ -65,10 +63,7 @@ import com.cherret.zaprett.ui.viewmodel.HostRepoViewModel
 import com.cherret.zaprett.ui.viewmodel.IpsetRepoViewModel
 import com.cherret.zaprett.ui.viewmodel.LuaLibsRepoViewModel
 import com.cherret.zaprett.ui.viewmodel.StrategyRepoViewModel
-import com.cherret.zaprett.utils.checkModuleInstallation
 import com.cherret.zaprett.utils.checkStoragePermission
-import com.cherret.zaprett.utils.getServiceType
-import com.cherret.zaprett.utils.setServiceType
 
 sealed class Screen(val route: String, @StringRes val nameResId: Int, val icon: ImageVector) {
     object home : Screen("home", R.string.title_home, Icons.Default.Home)
@@ -96,15 +91,6 @@ class MainActivity : ComponentActivity() {
         setContent {
             ZaprettTheme {
                 val sharedPreferences = remember { getSharedPreferences("settings", MODE_PRIVATE) }
-                LaunchedEffect(Unit) {
-                    if (getServiceType(sharedPreferences) != ServiceType.byedpi) {
-                        checkModuleInstallation { result ->
-                            if ((getServiceType(sharedPreferences) != ServiceType.byedpi) && !result) sharedPreferences.edit {
-                                setServiceType(sharedPreferences, ServiceType.byedpi)
-                            }
-                        }
-                    }
-                }
                 var showStoragePermissionDialog by remember {
                     mutableStateOf(!checkStoragePermission(this))
                 }
@@ -167,6 +153,7 @@ class MainActivity : ComponentActivity() {
     @Composable
     fun BottomBar() {
         val navController = rememberNavController()
+        var focusedTab by remember { mutableStateOf<String?>(null) }
         Scaffold(
             bottomBar = {
                 val navBackStackEntry = navController.currentBackStackEntryAsState().value
@@ -175,6 +162,10 @@ class MainActivity : ComponentActivity() {
                     NavigationBar {
                         topLevelRoutes.forEach { topLevelRoute ->
                             NavigationBarItem(
+                                modifier = Modifier.onFocusChanged { state ->
+                                    if (state.hasFocus) focusedTab = topLevelRoute.route
+                                    else if (focusedTab == topLevelRoute.route) focusedTab = null
+                                },
                                 icon = {
                                     Icon(
                                         topLevelRoute.icon,
@@ -182,7 +173,8 @@ class MainActivity : ComponentActivity() {
                                     )
                                 },
                                 label = { Text(text = stringResource(id = topLevelRoute.nameResId)) }, alwaysShowLabel = false,
-                                selected = currentDestination?.route == topLevelRoute.route,
+                                selected = currentDestination?.route == topLevelRoute.route &&
+                                    (focusedTab == null || focusedTab == topLevelRoute.route),
                                 onClick = {
                                     navController.navigate(topLevelRoute.route) {
                                         popUpTo(navController.graph.findStartDestination().id) {

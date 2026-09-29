@@ -70,8 +70,8 @@ fun checkRoot(callback: (Boolean) -> Unit) {
 }
 
 fun checkModuleInstallation(callback: (Boolean) -> Unit) {
-    Shell.cmd("zaprett").submit { result ->
-        callback(result.out.toString().contains("zaprett"))
+    Shell.cmd("command -v zaprett >/dev/null 2>&1").submit { result ->
+        callback(result.isSuccess)
     }
 }
 

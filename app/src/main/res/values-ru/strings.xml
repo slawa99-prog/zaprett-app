@@ -128,6 +128,15 @@
     <string name="selection_auto_applied">Включена: %1$s</string>
     <string name="selection_no_match">Рабочая стратегия не найдена. Прежние настройки восстановлены.</string>
     <string name="selection_no_targets">Включите список с доменами и установите хотя бы одну стратегию.</string>
+    <string name="selection_root_required">Этому тестовому приложению не предоставлен root. Разрешите Zaprett Auto Test в Magisk.</string>
+    <string name="selection_module_required">Приложению недоступна команда zaprett. Проверьте, что модуль Magisk включён, и перезагрузите приставку.</string>
+    <string name="selection_nfqws_required">Для автоподбора YouTube сначала выберите режим nfqws в настройках.</string>
+    <string name="selection_error_step">Подбор остановился на этапе «%1$s»: %2$s</string>
+    <string name="selection_preparing">подготовка</string>
+    <string name="selection_checking_service">проверка сервиса zaprett</string>
+    <string name="selection_checking_baseline">проверка сети без новой стратегии</string>
+    <string name="selection_restoring">восстановление прежних настроек</string>
+    <string name="selection_skipped">Не проверено: подбор остановился</string>
     <string name="begin_selection_snack">Начат подбор стратегии. Не закрывайте эту вкладку</string>
     <string name="change_probe_timeout">Изменить таймаут пробы</string>
     <string name="probe_timeout">Таймаут пробы</string>

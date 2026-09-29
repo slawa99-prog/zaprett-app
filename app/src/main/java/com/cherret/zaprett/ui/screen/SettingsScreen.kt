@@ -128,7 +128,7 @@ fun SettingsScreen(navController: NavController, viewModel : SettingsViewModel =
                             context = context,
                             serviceType = ServiceType.byedpi,
                             openNoRootDialog = openNoRootDialog,
-                            openNoModuleDialog = openNoRootDialog
+                            openNoModuleDialog = openNoModuleDialog
                         )
                     }
                 ),
@@ -139,7 +139,7 @@ fun SettingsScreen(navController: NavController, viewModel : SettingsViewModel =
                             context = context,
                             serviceType = ServiceType.nfqws,
                             openNoRootDialog = openNoRootDialog,
-                            openNoModuleDialog = openNoRootDialog
+                            openNoModuleDialog = openNoModuleDialog
                         )
                     }
                 ),
@@ -150,7 +150,7 @@ fun SettingsScreen(navController: NavController, viewModel : SettingsViewModel =
                             context = context,
                             serviceType = ServiceType.nfqws2,
                             openNoRootDialog = openNoRootDialog,
-                            openNoModuleDialog = openNoRootDialog
+                            openNoModuleDialog = openNoModuleDialog
                         )
                     }
                 )

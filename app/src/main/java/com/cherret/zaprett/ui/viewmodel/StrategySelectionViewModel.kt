@@ -175,9 +175,26 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
     }
 
     private suspend fun rootRunning(): Boolean = withContext(Dispatchers.IO) {
-        val result = Shell.cmd("zaprett status").exec()
-        if (!result.isSuccess) throw IllegalStateException(result.out.joinToString("\n"))
+        val result = Shell.cmd("zaprett status 2>&1").exec()
+        if (!result.isSuccess) throw IllegalStateException(
+            result.out.joinToString("\n").ifBlank { "zaprett status failed" }
+        )
         result.out.any { it.trim() == "zaprett is working" }
+    }
+
+    private suspend fun checkRootService() = withContext(Dispatchers.IO) {
+        if (!Shell.getShell().isRoot) {
+            throw IllegalStateException(context.getString(R.string.selection_root_required))
+        }
+        if (!Shell.cmd("command -v zaprett >/dev/null 2>&1").exec().isSuccess) {
+            throw IllegalStateException(context.getString(R.string.selection_module_required))
+        }
+    }
+
+    private fun describeError(stage: String, error: Exception): String {
+        Log.e("StrategySelection", stage, error)
+        val detail = error.message?.takeIf { it.isNotBlank() } ?: error.javaClass.simpleName
+        return context.getString(R.string.selection_error_step, stage, detail)
     }
 
     private suspend fun waitForRootService() {
@@ -196,21 +213,32 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
         diagnostic.value = ""
         var selected: StrategyCheckResult? = null
         val serviceType = getServiceType(prefs)
-        val originalPath = getActiveStrategy(prefs).getOrNull()?.manifestPath.orEmpty()
-        var currentPath = originalPath
+        var originalPath = ""
+        var currentPath = ""
+        var originalStrategyKnown = false
         var wasRunning = false
         var initialStatusKnown = false
+        var stage = context.getString(R.string.selection_preparing)
         try {
+            loadStrategies()
+            if (autoApply && serviceType != ServiceType.nfqws) {
+                throw IllegalStateException(context.getString(R.string.selection_nfqws_required))
+            }
+            if (serviceType != ServiceType.byedpi) checkRootService()
+            originalPath = getActiveStrategy(prefs).getOrNull()?.manifestPath.orEmpty()
+            currentPath = originalPath
+            originalStrategyKnown = true
             val targets = probeTargets()
             if (targets.isEmpty() || strategyStates.isEmpty()) {
-                _errorFlow.value = context.getString(R.string.selection_no_targets)
-                return null
+                throw IllegalStateException(context.getString(R.string.selection_no_targets))
             }
             if (serviceType != ServiceType.byedpi) {
+                stage = context.getString(R.string.selection_checking_service)
                 wasRunning = rootRunning()
                 initialStatusKnown = true
                 if (wasRunning) rootCommand("stop")
             }
+            stage = context.getString(R.string.selection_checking_baseline)
             val baseline = if (serviceType == ServiceType.byedpi) emptyList() else probe(buildHttpClient(), targets)
             val baselineCount = baseline.count { it.reached }
             val firstProblem = baseline.firstOrNull { !it.reached }?.problem.orEmpty()
@@ -220,6 +248,7 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
             }
             for (index in strategyStates.indices) {
                 val current = strategyStates[index]
+                stage = current.name
                 strategyStates[index] = current.copy(status = StrategyTestingStatus.Testing)
                 if (serviceType == ServiceType.byedpi) {
                     // Preserve the existing VPN test path for devices without root.
@@ -259,7 +288,7 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
                     } catch (error: Exception) {
                         strategyStates[index] = current.copy(
                             status = StrategyTestingStatus.Failed,
-                            problem = error.message?.take(160).orEmpty()
+                            problem = describeError(stage, error).take(240)
                         )
                     } finally {
                         if (rootRunning()) rootCommand("stop")
@@ -282,7 +311,18 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
-            _errorFlow.value = error.message ?: context.getString(R.string.error_unknown)
+            val message = describeError(stage, error)
+            _errorFlow.value = message
+            diagnostic.value = message
+            strategyStates.indices.forEach { index ->
+                val item = strategyStates[index]
+                if (item.status == StrategyTestingStatus.Waiting || item.status == StrategyTestingStatus.Testing) {
+                    strategyStates[index] = item.copy(
+                        status = StrategyTestingStatus.Failed,
+                        problem = context.getString(R.string.selection_skipped)
+                    )
+                }
+            }
         } finally {
           withContext(NonCancellable) {
             // Restore the original configuration on failure, and the original running state
@@ -292,7 +332,7 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
                 if (serviceType != ServiceType.byedpi && initialStatusKnown && rootRunning()) {
                     rootCommand("stop")
                 }
-                if (currentPath != finalPath) {
+                if (originalStrategyKnown && currentPath != finalPath) {
                     if (finalPath.isEmpty()) disableStrategy(currentPath, prefs)
                     else enableStrategy(finalPath, prefs)
                 }
@@ -302,7 +342,9 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
                 }
             } catch (error: Exception) {
                 selected = null
-                _errorFlow.value = error.message ?: context.getString(R.string.error_unknown)
+                val message = describeError(context.getString(R.string.selection_restoring), error)
+                _errorFlow.value = listOf(_errorFlow.value, message).filter { it.isNotBlank() }.joinToString("\n")
+                diagnostic.value = _errorFlow.value
                 // If activating the winner failed, put the previous strategy and service back.
                 if (serviceType != ServiceType.byedpi && initialStatusKnown) {
                     try {

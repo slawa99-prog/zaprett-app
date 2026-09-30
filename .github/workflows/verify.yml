@@ -19,30 +19,19 @@ jobs:
           java-version: '21'
           cache: gradle
       - uses: android-actions/setup-android@v4
-      - name: Retrieve pinned catalog binaries
+      - name: Verify bundled catalog
         run: |
           set -euo pipefail
-          directory=app/src/main/assets/youtube_pack/files/bin
-          mkdir -p "$directory"
-          for name in quic_initial_www_google_com tls_clienthello_www_google_com tls_clienthello_4pda_to tls_clienthello_max_ru; do
-            curl --fail --location --retry 3 --silent --show-error \
-              "https://raw.githubusercontent.com/CherretGit/zaprett-repo/09b30f0ee80731807eec59d2a5b796681739e654/files/bin/$name.bin" \
-              --output "$directory/$name.bin"
-          done
           python3 - <<'PY'
           from pathlib import Path
           import hashlib, json
           root = Path('app/src/main/assets/youtube_pack')
-          for manifest_path in (root / 'manifests/bin').glob('*.json'):
+          for manifest_path in (root / 'manifests').glob('**/*.json'):
               manifest = json.loads(manifest_path.read_text())
-              name = manifest['artifact']['url'].rsplit('/', 1)[-1]
-              actual = hashlib.sha256((root / 'files/bin' / name).read_bytes()).hexdigest()
-              assert actual == manifest['artifact']['sha256'], name
+              artifact = root / manifest['artifact']['url'].split('/refs/heads/main/')[1]
+              actual = hashlib.sha256(artifact.read_bytes()).hexdigest()
+              assert actual == manifest['artifact']['sha256'], str(artifact)
           PY
-      - uses: actions/upload-artifact@v4
-        with:
-          name: catalog-binaries
-          path: app/src/main/assets/youtube_pack/files/bin/*.bin
       - name: Install native toolchain
         run: |
           rustup default stable

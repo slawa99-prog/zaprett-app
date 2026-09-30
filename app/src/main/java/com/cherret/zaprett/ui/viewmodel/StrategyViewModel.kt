@@ -66,10 +66,12 @@ class StrategyViewModel(application: Application): BaseListsViewModel(applicatio
             return
         }
         isInstallingPack.value = true
-        packStatus.value = context.getString(com.cherret.zaprett.R.string.youtube_pack_loading, 0, 13)
+        packStatus.value = context.getString(
+            com.cherret.zaprett.R.string.youtube_pack_loading, 0, YouTubePackInstaller.totalItems
+        )
         viewModelScope.launch {
             try {
-                YouTubePackInstaller.install(sharedPreferences) { done, total ->
+                YouTubePackInstaller.install(context, sharedPreferences) { done, total ->
                     packStatus.value = context.getString(com.cherret.zaprett.R.string.youtube_pack_loading, done, total)
                 }
                 packStatus.value = context.getString(com.cherret.zaprett.R.string.youtube_pack_ready)

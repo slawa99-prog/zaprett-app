@@ -6,6 +6,7 @@ import android.content.Intent
 import android.util.Log
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import com.cherret.zaprett.R
@@ -58,6 +59,14 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
         private set
     var diagnostic = mutableStateOf("")
         private set
+    var checkedStrategies = mutableIntStateOf(0)
+        private set
+    var totalStrategies = mutableIntStateOf(0)
+        private set
+    var currentStage = mutableStateOf("")
+        private set
+    var finishedStatus = mutableStateOf("")
+        private set
 
     private data class ProbeResult(val domain: String, val reached: Boolean, val problem: String = "")
 
@@ -92,6 +101,7 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
                 domains = emptyList()
             )
         }
+        totalStrategies.intValue = strategyStates.size
     }
 
     private suspend fun testDomain(client: OkHttpClient, domain: String): ProbeResult = withContext(Dispatchers.IO) {
@@ -127,10 +137,26 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
         }
     }
 
-    private suspend fun countReachable(client: OkHttpClient, index: Int, domains: List<String>): Float {
-        val reachable = probe(client, domains).filter { it.reached }.map { it.domain }
-        strategyStates[index].domains = reachable
-        return reachable.size.toFloat() / domains.size
+    private suspend fun reachableDomains(client: OkHttpClient, domains: List<String>): List<String> =
+        probe(client, domains).filter { it.reached }.map { it.domain }
+
+    private fun updateResult(result: StrategyCheckResult) {
+        val index = strategyStates.indexOfFirst { it.path == result.path }
+        if (index >= 0) strategyStates[index] = result
+        // Stable keys in the UI keep focus on the same card while successful results move up.
+        val ordered = strategyStates.sortedWith(
+            compareBy<StrategyCheckResult> {
+                when {
+                    it.status == StrategyTestingStatus.Completed && it.progress > 0f -> 0
+                    it.status == StrategyTestingStatus.Testing -> 1
+                    it.status == StrategyTestingStatus.Waiting -> 2
+                    it.status == StrategyTestingStatus.Completed -> 3
+                    else -> 4
+                }
+            }.thenByDescending { it.progress }
+        )
+        strategyStates.clear()
+        strategyStates.addAll(ordered)
     }
 
     suspend fun readActiveListsLines(): List<String> = withContext(Dispatchers.IO) {
@@ -214,6 +240,9 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
         isTesting.value = true
         _errorFlow.value = ""
         diagnostic.value = ""
+        checkedStrategies.intValue = 0
+        finishedStatus.value = ""
+        currentStage.value = context.getString(R.string.selection_preparing)
         var selected: StrategyCheckResult? = null
         val serviceType = getServiceType(prefs)
         var originalPath = ""
@@ -224,6 +253,7 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
         var stage = context.getString(R.string.selection_preparing)
         try {
             loadStrategies()
+            val candidates = strategyStates.toList()
             if (autoApply && serviceType != ServiceType.nfqws) {
                 throw IllegalStateException(context.getString(R.string.selection_nfqws_required))
             }
@@ -237,11 +267,13 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
             }
             if (serviceType != ServiceType.byedpi) {
                 stage = context.getString(R.string.selection_checking_service)
+                currentStage.value = stage
                 wasRunning = rootRunning()
                 initialStatusKnown = true
                 if (wasRunning) rootCommand("stop")
             }
             stage = context.getString(R.string.selection_checking_baseline)
+            currentStage.value = stage
             val baseline = if (serviceType == ServiceType.byedpi) emptyList() else probe(buildHttpClient(), targets)
             val baselineCount = baseline.count { it.reached }
             val firstProblem = baseline.firstOrNull { !it.reached }?.problem.orEmpty()
@@ -249,10 +281,10 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
                 diagnostic.value = context.getString(R.string.selection_baseline, baselineCount, targets.size) +
                     if (firstProblem.isEmpty()) "" else " · $firstProblem"
             }
-            for (index in strategyStates.indices) {
-                val current = strategyStates[index]
+            for (current in candidates) {
                 stage = current.name
-                strategyStates[index] = current.copy(status = StrategyTestingStatus.Testing)
+                currentStage.value = stage
+                updateResult(current.copy(status = StrategyTestingStatus.Testing))
                 if (serviceType == ServiceType.byedpi) {
                     // Preserve the existing VPN test path for devices without root.
                     enableStrategy(current.path, prefs)
@@ -269,8 +301,11 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
                     if (!connected) throw IllegalStateException("VPN did not start")
                     delay(150L)
                     try {
-                        val score = countReachable(buildHttpClient(), index, targets)
-                        strategyStates[index] = current.copy(progress = score, status = StrategyTestingStatus.Completed, checkedDomains = targets.size)
+                        val reachable = reachableDomains(buildHttpClient(), targets)
+                        updateResult(current.copy(
+                            progress = reachable.size.toFloat() / targets.size, domains = reachable,
+                            status = StrategyTestingStatus.Completed, checkedDomains = targets.size
+                        ))
                     } finally {
                         context.startService(Intent(context, ByeDpiVpnService::class.java).apply { action = "STOP_VPN" })
                         delay(200L)
@@ -284,19 +319,23 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
                         }
                         rootCommand("start")
                         waitForRootService()
-                        val score = countReachable(buildHttpClient(), index, targets)
-                        strategyStates[index] = current.copy(progress = score, status = StrategyTestingStatus.Completed, checkedDomains = targets.size)
+                        val reachable = reachableDomains(buildHttpClient(), targets)
+                        updateResult(current.copy(
+                            progress = reachable.size.toFloat() / targets.size, domains = reachable,
+                            status = StrategyTestingStatus.Completed, checkedDomains = targets.size
+                        ))
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (error: Exception) {
-                        strategyStates[index] = current.copy(
+                        updateResult(current.copy(
                             status = StrategyTestingStatus.Failed,
                             problem = describeError(stage, error).take(240)
-                        )
+                        ))
                     } finally {
                         if (rootRunning()) rootCommand("stop")
                     }
                 }
+                checkedStrategies.intValue++
             }
             if (autoApply && serviceType != ServiceType.byedpi) {
                 selected = strategyStates.filter {
@@ -317,13 +356,12 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
             val message = describeError(stage, error)
             _errorFlow.value = message
             diagnostic.value = message
-            strategyStates.indices.forEach { index ->
-                val item = strategyStates[index]
+            strategyStates.toList().forEach { item ->
                 if (item.status == StrategyTestingStatus.Waiting || item.status == StrategyTestingStatus.Testing) {
-                    strategyStates[index] = item.copy(
+                    updateResult(item.copy(
                         status = StrategyTestingStatus.Failed,
                         problem = context.getString(R.string.selection_skipped)
-                    )
+                    ))
                 }
             }
         } finally {
@@ -361,9 +399,13 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
                 }
             }
             selected?.let { diagnostic.value += "\n" + context.getString(R.string.selection_auto_applied, it.name) }
-            val sorted = strategyStates.sortedByDescending { it.progress }
-            strategyStates.clear()
-            strategyStates.addAll(sorted)
+            finishedStatus.value = when {
+                _errorFlow.value.isNotBlank() -> context.getString(R.string.selection_stopped)
+                selected != null -> context.getString(R.string.selection_finished_selected, selected!!.name)
+                autoApply -> context.getString(R.string.selection_finished_none)
+                else -> context.getString(R.string.selection_finished)
+            }
+            currentStage.value = ""
             isTesting.value = false
           }
         }

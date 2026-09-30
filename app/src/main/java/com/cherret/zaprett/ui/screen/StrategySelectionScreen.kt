@@ -46,6 +46,8 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
@@ -82,6 +84,10 @@ fun StrategySelectionScreen(navController: NavController, vpnLauncher: ActivityR
     var logCopied by remember(error) { mutableStateOf(false) }
     val isTesting = viewModel.isTesting.value
     val diagnostic = viewModel.diagnostic.value
+    val checked = viewModel.checkedStrategies.intValue
+    val total = viewModel.totalStrategies.intValue
+    val finishedStatus = viewModel.finishedStatus.value
+    val currentStage = viewModel.currentStage.value
 
     suspend fun runAutoTest() {
         val progress = viewModel.viewModelScope.launch {
@@ -150,7 +156,8 @@ fun StrategySelectionScreen(navController: NavController, vpnLauncher: ActivityR
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            Column {
+              TopAppBar(
                 title = {
                     Text(
                         text = stringResource(R.string.title_selection),
@@ -179,7 +186,34 @@ fun StrategySelectionScreen(navController: NavController, vpnLauncher: ActivityR
                     }
                 },
                 windowInsets = WindowInsets(0)
-            )
+              )
+              Column(
+                  modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
+                  verticalArrangement = Arrangement.spacedBy(6.dp)
+              ) {
+                  Text(
+                      if (finishedStatus.isNotBlank()) finishedStatus
+                      else stringResource(R.string.selection_checked_count, checked, total),
+                      style = MaterialTheme.typography.titleMedium
+                  )
+                  LinearProgressIndicator(
+                      progress = { if (total == 0) 0f else checked.toFloat() / total },
+                      modifier = Modifier.fillMaxWidth()
+                  )
+                  if (isTesting) {
+                      Text(
+                          stringResource(R.string.selection_checked_count, checked, total) +
+                              " · " + stringResource(R.string.selection_current_stage, currentStage),
+                          style = MaterialTheme.typography.bodyMedium
+                      )
+                  } else if (finishedStatus.isNotBlank()) {
+                      Text(
+                          stringResource(R.string.selection_checked_count, checked, total),
+                          style = MaterialTheme.typography.bodyMedium
+                      )
+                  }
+              }
+            }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
         content = { paddingValues ->
@@ -201,25 +235,27 @@ fun StrategySelectionScreen(navController: NavController, vpnLauncher: ActivityR
                         NoHostsCard(viewModel.noHostsCard)
                         if (getServiceType(prefs) != ServiceType.byedpi) {
                             FilledTonalButton(
-                                enabled = !isTesting,
                                 modifier = Modifier.focusRequester(actionFocus),
                                 onClick = {
-                                    viewModel.viewModelScope.launch {
-                                        runAutoTest()
+                                    if (!isTesting) {
+                                        viewModel.viewModelScope.launch {
+                                            runAutoTest()
+                                        }
                                     }
                                 }
                             ) {
-                                Text(stringResource(R.string.selection_retry))
+                                Text(stringResource(if (isTesting) R.string.selection_running else R.string.selection_retry))
                             }
                         } else {
                             FilledTonalButton(
-                                enabled = !isTesting,
                                 modifier = Modifier.focusRequester(actionFocus),
                                 onClick = {
-                                    viewModel.viewModelScope.launch { viewModel.performTest() }
+                                    if (!isTesting) {
+                                        viewModel.viewModelScope.launch { viewModel.performTest() }
+                                    }
                                 }
                             ) {
-                                Text(stringResource(R.string.begin_selection))
+                                Text(stringResource(if (isTesting) R.string.selection_running else R.string.begin_selection))
                             }
                         }
                         if (diagnostic.isNotBlank()) {

@@ -61,6 +61,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.platform.LocalContext
@@ -87,6 +90,9 @@ import kotlinx.coroutines.launch
 @Composable
 fun HomeScreen(viewModel: HomeViewModel = viewModel(), vpnLauncher: ActivityResultLauncher<Intent>) {
     val scrollState = rememberScrollState()
+    val startButtonFocus = remember { FocusRequester() }
+    val stopButtonFocus = remember { FocusRequester() }
+    val restartButtonFocus = remember { FocusRequester() }
     val context = LocalContext.current
     val sharedPreferences: SharedPreferences = remember { context.getSharedPreferences("settings", Context.MODE_PRIVATE) }
     val requestVpnPermission by viewModel.requestVpnPermission.collectAsState()
@@ -107,6 +113,7 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel(), vpnLauncher: ActivityResu
         launch { viewModel.checkForUpdate() }
         launch { viewModel.checkServiceStatus() }
         launch { viewModel.checkModuleInfo() }
+        startButtonFocus.requestFocus()
     }
 
     LaunchedEffect(requestVpnPermission) {
@@ -168,6 +175,7 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel(), vpnLauncher: ActivityResu
         snackbarHost = { SnackbarHost(snackbarHostState) },
         content = { paddingValues ->
             Column(modifier = Modifier
+                .fillMaxSize()
                 .padding(paddingValues)
                 .verticalScroll(scrollState)
                 .tvDpadScroll(scrollState)) {
@@ -180,7 +188,10 @@ fun HomeScreen(viewModel: HomeViewModel = viewModel(), vpnLauncher: ActivityResu
                     viewModel,
                     sharedPreferences,
                     snackbarHostState,
-                    scope
+                    scope,
+                    startButtonFocus,
+                    stopButtonFocus,
+                    restartButtonFocus
                 )
                 ModuleInfoCard(moduleVer, nfqwsVer, nfqws2Ver, byedpiVer, serviceMode)
             }
@@ -258,12 +269,22 @@ private fun UpdateCard(updateAvailable: MutableState<Boolean>, onClick: () -> Un
 }
 
 @Composable
-private fun ServiceControlButtons(viewModel: HomeViewModel, sharedPreferences: SharedPreferences, snackbarHostState: SnackbarHostState, scope: CoroutineScope) {
+private fun ServiceControlButtons(
+    viewModel: HomeViewModel,
+    sharedPreferences: SharedPreferences,
+    snackbarHostState: SnackbarHostState,
+    scope: CoroutineScope,
+    startFocus: FocusRequester,
+    stopFocus: FocusRequester,
+    restartFocus: FocusRequester
+) {
     FilledTonalButton(
         onClick = { viewModel.onBtnStartService(snackbarHostState, scope) },
         modifier = Modifier
             .padding(horizontal = 5.dp, vertical = 8.dp)
             .fillMaxWidth()
+            .focusRequester(startFocus)
+            .focusProperties { down = stopFocus }
     ) {
         Icon(
             imageVector = Icons.Default.PlayArrow,
@@ -277,6 +298,11 @@ private fun ServiceControlButtons(viewModel: HomeViewModel, sharedPreferences: S
         modifier = Modifier
             .padding(horizontal = 5.dp, vertical = 8.dp)
             .fillMaxWidth()
+            .focusRequester(stopFocus)
+            .focusProperties {
+                up = startFocus
+                if (getServiceType(sharedPreferences) != ServiceType.byedpi) down = restartFocus
+            }
     ) {
         Icon(
             imageVector = Icons.Default.Stop,
@@ -291,6 +317,8 @@ private fun ServiceControlButtons(viewModel: HomeViewModel, sharedPreferences: S
             modifier = Modifier
                 .padding(horizontal = 5.dp, vertical = 8.dp)
                 .fillMaxWidth()
+                .focusRequester(restartFocus)
+                .focusProperties { up = stopFocus }
         ) {
             Icon(
                 imageVector = Icons.Default.RestartAlt,

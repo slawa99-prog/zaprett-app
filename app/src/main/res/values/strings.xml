@@ -119,6 +119,11 @@
     <string name="begin_selection">Begin selection</string>
     <string name="selection_auto_apply">Find and enable the best strategy</string>
     <string name="selection_retry">Run selection again</string>
+    <string name="selection_previous_results">Previous selection results</string>
+    <string name="selection_try_strategy">Try this one</string>
+    <string name="selection_active">Enabled</string>
+    <string name="selection_restart_to_try">Selected %1$s. Restart zaprett, then check video playback.</string>
+    <string name="selection_restarted">zaprett restarted. Check video playback.</string>
     <string name="youtube_selection_title">YouTube auto selection</string>
     <string name="youtube_auto_search">Find and enable</string>
     <string name="youtube_pack_loading">Preparing the built-in YouTube catalog: %1$d/%2$d</string>

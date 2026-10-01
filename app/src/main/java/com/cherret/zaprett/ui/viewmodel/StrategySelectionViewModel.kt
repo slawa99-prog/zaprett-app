@@ -14,6 +14,7 @@ import com.cherret.zaprett.byedpi.ByeDpiVpnService
 import com.cherret.zaprett.data.ServiceStatus
 import com.cherret.zaprett.data.ServiceType
 import com.cherret.zaprett.data.StrategyCheckResult
+import com.cherret.zaprett.data.StrategySelectionHistory
 import com.cherret.zaprett.data.StrategyTestingStatus
 import com.cherret.zaprett.utils.disableStrategy
 import com.cherret.zaprett.utils.enableStrategy
@@ -89,19 +90,31 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
         return builder.build()
     }
 
-    fun loadStrategies() {
+    fun loadStrategies(restoreResults: Boolean = true) {
         val strategyList = getAllStrategies(prefs)
+        val snapshot = if (restoreResults) StrategySelectionHistory.load(prefs, getServiceType(prefs)) else null
+        val installed = strategyList.associateBy { it.manifestPath }
+        val restored = snapshot?.results.orEmpty().mapNotNull { result ->
+            installed[result.path]?.let { result.copy(name = it.name) }
+        }.distinctBy { it.path }
+        val restoredPaths = restored.mapTo(mutableSetOf()) { it.path }
         strategyStates.clear()
+        strategyStates.addAll(restored)
         strategyList.forEach { manifest ->
-            strategyStates += StrategyCheckResult(
-                path = manifest.manifestPath,
-                name = manifest.name,
-                status = StrategyTestingStatus.Waiting,
-                progress = 0f,
-                domains = emptyList()
-            )
+            if (manifest.manifestPath !in restoredPaths) {
+                strategyStates += StrategyCheckResult(
+                    path = manifest.manifestPath,
+                    name = manifest.name,
+                    status = StrategyTestingStatus.Waiting,
+                    progress = 0f,
+                    domains = emptyList()
+                )
+            }
         }
         totalStrategies.intValue = strategyStates.size
+        checkedStrategies.intValue = snapshot?.checked?.coerceIn(0, strategyStates.size) ?: 0
+        finishedStatus.value = snapshot?.summary.orEmpty()
+        diagnostic.value = snapshot?.diagnostic.orEmpty()
     }
 
     private suspend fun testDomain(client: OkHttpClient, domain: String): ProbeResult = withContext(Dispatchers.IO) {
@@ -252,7 +265,7 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
         var initialStatusKnown = false
         var stage = context.getString(R.string.selection_preparing)
         try {
-            loadStrategies()
+            loadStrategies(restoreResults = false)
             val candidates = strategyStates.toList()
             if (autoApply && serviceType != ServiceType.nfqws) {
                 throw IllegalStateException(context.getString(R.string.selection_nfqws_required))
@@ -406,6 +419,24 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
                 else -> context.getString(R.string.selection_finished)
             }
             currentStage.value = ""
+            if (checkedStrategies.intValue > 0) {
+                val snapshot = StrategySelectionHistory.Snapshot(
+                    serviceType = serviceType,
+                    results = strategyStates.toList(),
+                    checked = checkedStrategies.intValue,
+                    summary = finishedStatus.value,
+                    diagnostic = diagnostic.value
+                )
+                try {
+                    withContext(Dispatchers.IO) {
+                        if (!StrategySelectionHistory.save(prefs, snapshot)) {
+                            Log.e("StrategySelection", "Could not save strategy selection results")
+                        }
+                    }
+                } catch (error: Exception) {
+                    Log.e("StrategySelection", "Could not save strategy selection results", error)
+                }
+            }
             isTesting.value = false
           }
         }
@@ -415,6 +446,17 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
     fun checkHosts() {
         if (getActiveLists(prefs).isEmpty() || getAllStrategies(prefs).isEmpty()) noHostsCard.value = true
         Log.d("getActiveLists.isEmpty || getAllStrategies.isEmpty", getActiveLists(prefs).isEmpty().toString())
+    }
+    suspend fun noteSelectedStrategy(name: String) {
+        val summary = context.getString(R.string.selection_finished_selected, name)
+        finishedStatus.value = summary
+        withContext(Dispatchers.IO) {
+            StrategySelectionHistory.load(prefs, getServiceType(prefs))?.let { previous ->
+                if (!StrategySelectionHistory.save(prefs, previous.copy(summary = summary))) {
+                    Log.e("StrategySelection", "Could not update selected strategy in saved results")
+                }
+            }
+        }
     }
     fun startVpn() {
         ContextCompat.startForegroundService(context, Intent(context, ByeDpiVpnService::class.java).apply { action = "START_VPN" })

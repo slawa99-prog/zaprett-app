@@ -113,6 +113,11 @@
     <string name="begin_selection">Начать подбор</string>
     <string name="selection_auto_apply">Подобрать и включить</string>
     <string name="selection_retry">Повторить подбор</string>
+    <string name="selection_previous_results">Результаты последнего подбора</string>
+    <string name="selection_try_strategy">Попробовать</string>
+    <string name="selection_active">Включена</string>
+    <string name="selection_restart_to_try">Выбрана %1$s. Перезапустите zaprett, затем проверьте видео.</string>
+    <string name="selection_restarted">zaprett перезапущен. Проверьте видео.</string>
     <string name="youtube_selection_title">Автоподбор для YouTube</string>
     <string name="youtube_auto_search">Подобрать и включить</string>
     <string name="youtube_pack_loading">Подготавливаем встроенный каталог YouTube: %1$d/%2$d</string>

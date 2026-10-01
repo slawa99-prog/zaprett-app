@@ -23,6 +23,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -66,7 +67,10 @@ import com.cherret.zaprett.ui.component.StrategySelectionItem
 import com.cherret.zaprett.ui.component.tvDpadScroll
 import com.cherret.zaprett.ui.viewmodel.StrategySelectionViewModel
 import com.cherret.zaprett.data.ServiceType
+import com.cherret.zaprett.utils.enableStrategy
+import com.cherret.zaprett.utils.getActiveStrategy
 import com.cherret.zaprett.utils.getServiceType
+import com.cherret.zaprett.utils.restartService
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -78,6 +82,7 @@ fun StrategySelectionScreen(navController: NavController, vpnLauncher: ActivityR
     val strategyStates = viewModel.strategyStates
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("settings", MODE_PRIVATE)
+    var activePath by remember { mutableStateOf(getActiveStrategy(prefs).getOrNull()?.manifestPath.orEmpty()) }
     var showDialog = remember { mutableStateOf(false) }
     val requestVpnPermission by viewModel.requestVpnPermission.collectAsState()
     val error by viewModel.errorFlow.collectAsState()
@@ -99,8 +104,13 @@ fun StrategySelectionScreen(navController: NavController, vpnLauncher: ActivityR
             snackbarHostState.currentSnackbarData?.dismiss()
         }
         if (selected != null) {
+            activePath = getActiveStrategy(prefs).getOrNull()?.manifestPath.orEmpty()
             snackbarHostState.showSnackbar(context.getString(R.string.selection_auto_applied, selected))
         }
+    }
+
+    LaunchedEffect(isTesting) {
+        if (!isTesting) activePath = getActiveStrategy(prefs).getOrNull()?.manifestPath.orEmpty()
     }
 
     LaunchedEffect(autoStart) {
@@ -219,11 +229,8 @@ fun StrategySelectionScreen(navController: NavController, vpnLauncher: ActivityR
         content = { paddingValues ->
             LazyColumn (
                 state = listState,
-                contentPadding = PaddingValues(
-                    top = paddingValues.calculateTopPadding(),
-                    bottom = paddingValues.calculateBottomPadding() + 40.dp
-                ),
-                modifier = Modifier.fillMaxSize().tvDpadScroll(listState)
+                contentPadding = PaddingValues(bottom = 40.dp),
+                modifier = Modifier.fillMaxSize().padding(paddingValues).tvDpadScroll(listState)
             ) {
                 item {
                     Column (
@@ -283,7 +290,41 @@ fun StrategySelectionScreen(navController: NavController, vpnLauncher: ActivityR
                     }
                     else -> {
                         items(strategyStates, key = { it.path }) { item ->
-                            StrategySelectionItem(item, prefs, context, snackbarHostState, isTesting)
+                            StrategySelectionItem(
+                                strategy = item,
+                                isTesting = isTesting,
+                                isActive = item.path == activePath,
+                                onApply = {
+                                    viewModel.viewModelScope.launch {
+                                        try {
+                                            enableStrategy(item.path, prefs)
+                                            activePath = item.path
+                                            viewModel.noteSelectedStrategy(item.name)
+                                            if (getServiceType(prefs) == ServiceType.byedpi) {
+                                                snackbarHostState.showSnackbar(context.getString(R.string.strategy_applied))
+                                            } else {
+                                                val response = snackbarHostState.showSnackbar(
+                                                    context.getString(R.string.selection_restart_to_try, item.name),
+                                                    actionLabel = context.getString(R.string.btn_restart_service),
+                                                    withDismissAction = true
+                                                )
+                                                if (response == SnackbarResult.ActionPerformed) {
+                                                    restartService { error ->
+                                                        viewModel.viewModelScope.launch {
+                                                            snackbarHostState.showSnackbar(
+                                                                if (error.isBlank()) context.getString(R.string.selection_restarted)
+                                                                else error
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        } catch (error: Exception) {
+                                            snackbarHostState.showSnackbar(error.message ?: context.getString(R.string.error_unknown))
+                                        }
+                                    }
+                                }
+                            )
                         }
                     }
                 }

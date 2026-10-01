@@ -63,8 +63,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import androidx.navigation.compose.currentBackStackEntryAsState
 import com.cherret.zaprett.R
 import com.cherret.zaprett.data.ServiceType
+import com.cherret.zaprett.data.StrategySelectionHistory
 import com.cherret.zaprett.ui.component.GenerateManifestDialog
 import com.cherret.zaprett.ui.component.ListSwitchItem
 import com.cherret.zaprett.ui.component.SettingsItem
@@ -84,6 +86,10 @@ fun StrategyScreen(navController: NavController, viewModel: StrategyViewModel = 
     val listState = rememberLazyListState()
     val actionFocus = remember { FocusRequester() }
     val serviceType = getServiceType(sharedPreferences)
+    // Re-read on return from selection; SharedPreferences itself is not Compose state.
+    val backStackEntry by navController.currentBackStackEntryAsState()
+    val previousResults = backStackEntry?.destination?.route == "strategies" &&
+        StrategySelectionHistory.load(sharedPreferences, serviceType)?.results?.isNotEmpty() == true
     val state by viewModel.listUiState.collectAsState()
     var logCopied by remember(state.error) { mutableStateOf(false) }
     val showPermissionDialog by viewModel.showNoPermissionDialog.collectAsState()
@@ -184,6 +190,13 @@ fun StrategyScreen(navController: NavController, viewModel: StrategyViewModel = 
                                         onClick = { navController.navigate("selectionScreen?autoStart=true") }
                                     ) {
                                         Text(stringResource(R.string.youtube_auto_search))
+                                    }
+                                    if (previousResults) {
+                                        FilledTonalButton(
+                                            onClick = { navController.navigate("selectionScreen?autoStart=false") }
+                                        ) {
+                                            Text(stringResource(R.string.selection_previous_results))
+                                        }
                                     }
                                     FilledTonalButton(
                                         enabled = !viewModel.isInstallingPack.value,

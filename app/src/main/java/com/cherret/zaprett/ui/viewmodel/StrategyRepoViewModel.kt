@@ -6,14 +6,14 @@ import com.cherret.zaprett.data.ServiceType
 import com.cherret.zaprett.data.StorageData
 import com.cherret.zaprett.utils.getAllByeDPIStrategies
 import com.cherret.zaprett.utils.getAllNfqwsStrategies
+import com.cherret.zaprett.utils.getAllNfqws2Strategies
 import com.cherret.zaprett.utils.getServiceType
 
 class StrategyRepoViewModel(application: Application): BaseRepoViewModel(application) {
-    override fun getInstalled(): Array<StorageData> =
-        if (getServiceType(sharedPreferences) != ServiceType.byedpi) {
-            getAllNfqwsStrategies()
-        } else {
-            getAllByeDPIStrategies()
-        }
+    override fun getInstalled(): Array<StorageData> = when (getServiceType(sharedPreferences)) {
+        ServiceType.nfqws -> getAllNfqwsStrategies()
+        ServiceType.nfqws2 -> getAllNfqws2Strategies()
+        ServiceType.byedpi -> getAllByeDPIStrategies()
+    }
     override val repoTab = RepoTab.strategies
 }

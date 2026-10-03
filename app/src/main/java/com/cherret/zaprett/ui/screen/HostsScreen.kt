@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -65,6 +66,7 @@ import com.cherret.zaprett.R
 import com.cherret.zaprett.data.ListType
 import com.cherret.zaprett.ui.component.GenerateManifestDialog
 import com.cherret.zaprett.ui.component.ListSwitchItem
+import com.cherret.zaprett.ui.component.tvDpadScroll
 import com.cherret.zaprett.ui.viewmodel.HostsViewModel
 import com.cherret.zaprett.utils.getHostListMode
 import com.cherret.zaprett.utils.getManifestsPath
@@ -73,6 +75,7 @@ import com.cherret.zaprett.utils.getZaprettPath
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HostsScreen(navController: NavController, viewModel: HostsViewModel = viewModel()) {
+    val listState = rememberLazyListState()
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
     val scope = rememberCoroutineScope()
@@ -151,11 +154,12 @@ fun HostsScreen(navController: NavController, viewModel: HostsViewModel = viewMo
                 modifier = Modifier.fillMaxSize()
             ) {
                 LazyColumn(
+                    state = listState,
                     contentPadding = PaddingValues(
                         top = paddingValues.calculateTopPadding(),
                         bottom = paddingValues.calculateBottomPadding() + 80.dp
                     ),
-                    modifier = Modifier.navigationBarsPadding().fillMaxSize()
+                    modifier = Modifier.navigationBarsPadding().fillMaxSize().tvDpadScroll(listState)
                 ) {
                     item {
                         ListTypeChoose(viewModel, prefs)

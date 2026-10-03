@@ -32,23 +32,23 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.cherret.zaprett.data.ServiceType
 import com.cherret.zaprett.ui.screen.DebugScreen
 import com.cherret.zaprett.ui.screen.HomeScreen
 import com.cherret.zaprett.ui.screen.HostsScreen
@@ -64,13 +64,7 @@ import com.cherret.zaprett.ui.viewmodel.HostRepoViewModel
 import com.cherret.zaprett.ui.viewmodel.IpsetRepoViewModel
 import com.cherret.zaprett.ui.viewmodel.LuaLibsRepoViewModel
 import com.cherret.zaprett.ui.viewmodel.StrategyRepoViewModel
-import com.cherret.zaprett.utils.checkModuleInstallation
 import com.cherret.zaprett.utils.checkStoragePermission
-import com.cherret.zaprett.utils.getServiceType
-import com.cherret.zaprett.utils.setServiceType
-import com.google.firebase.Firebase
-import com.google.firebase.analytics.FirebaseAnalytics
-import com.google.firebase.analytics.analytics
 
 sealed class Screen(val route: String, @StringRes val nameResId: Int, val icon: ImageVector) {
     object home : Screen("home", R.string.title_home, Icons.Default.Home)
@@ -80,11 +74,10 @@ sealed class Screen(val route: String, @StringRes val nameResId: Int, val icon: 
     object settings : Screen("settings", R.string.title_settings, Icons.Default.Settings)
 }
 val topLevelRoutes = listOf(Screen.home, Screen.hosts, Screen.strategies, Screen.ipsets, Screen.settings)
-val hideNavBar = listOf("repo?source={source}", "debugScreen", "selectionScreen")
+val hideNavBar = listOf("repo?source={source}", "debugScreen", "selectionScreen?autoStart={autoStart}", "personalSelectionScreen?autoStart={autoStart}")
 class MainActivity : ComponentActivity() {
     private val viewModel: HomeViewModel by viewModels()
     private lateinit var notificationPermissionLauncher: ActivityResultLauncher<String>
-    private lateinit var firebaseAnalytics: FirebaseAnalytics
     private lateinit var vpnPermissionLauncher: ActivityResultLauncher<Intent>
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -95,20 +88,10 @@ class MainActivity : ComponentActivity() {
             }
         }
         notificationPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> }
-        firebaseAnalytics = Firebase.analytics
         enableEdgeToEdge()
         setContent {
             ZaprettTheme {
                 val sharedPreferences = remember { getSharedPreferences("settings", MODE_PRIVATE) }
-                LaunchedEffect(Unit) {
-                    if (getServiceType(sharedPreferences) != ServiceType.byedpi) {
-                        checkModuleInstallation { result ->
-                            if ((getServiceType(sharedPreferences) != ServiceType.byedpi) && !result) sharedPreferences.edit {
-                                setServiceType(sharedPreferences, ServiceType.byedpi)
-                            }
-                        }
-                    }
-                }
                 var showStoragePermissionDialog by remember {
                     mutableStateOf(!checkStoragePermission(this))
                 }
@@ -119,7 +102,6 @@ class MainActivity : ComponentActivity() {
                     )
                 }
                 var showWelcomeDialog by remember { mutableStateOf(sharedPreferences.getBoolean("welcome_dialog", true)) }
-                firebaseAnalytics.setAnalyticsCollectionEnabled(sharedPreferences.getBoolean("send_firebase_analytics", BuildConfig.send_firebase_analytics))
                 BottomBar()
                 if (showStoragePermissionDialog) {
                     PermissionDialog(
@@ -172,6 +154,7 @@ class MainActivity : ComponentActivity() {
     @Composable
     fun BottomBar() {
         val navController = rememberNavController()
+        var focusedTab by remember { mutableStateOf<String?>(null) }
         Scaffold(
             bottomBar = {
                 val navBackStackEntry = navController.currentBackStackEntryAsState().value
@@ -180,6 +163,10 @@ class MainActivity : ComponentActivity() {
                     NavigationBar {
                         topLevelRoutes.forEach { topLevelRoute ->
                             NavigationBarItem(
+                                modifier = Modifier.onFocusChanged { state ->
+                                    if (state.hasFocus) focusedTab = topLevelRoute.route
+                                    else if (focusedTab == topLevelRoute.route) focusedTab = null
+                                },
                                 icon = {
                                     Icon(
                                         topLevelRoute.icon,
@@ -187,7 +174,8 @@ class MainActivity : ComponentActivity() {
                                     )
                                 },
                                 label = { Text(text = stringResource(id = topLevelRoute.nameResId)) }, alwaysShowLabel = false,
-                                selected = currentDestination?.route == topLevelRoute.route,
+                                selected = currentDestination?.route == topLevelRoute.route &&
+                                    (focusedTab == null || focusedTab == topLevelRoute.route),
                                 onClick = {
                                     navController.navigate(topLevelRoute.route) {
                                         popUpTo(navController.graph.findStartDestination().id) {
@@ -239,7 +227,25 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 composable("debugScreen") { DebugScreen(navController) }
-                composable("selectionScreen") { StrategySelectionScreen(navController, vpnPermissionLauncher) }
+                composable(
+                    "selectionScreen?autoStart={autoStart}",
+                    arguments = listOf(navArgument("autoStart") { type = NavType.BoolType; defaultValue = false })
+                ) { entry ->
+                    StrategySelectionScreen(
+                        navController, vpnPermissionLauncher,
+                        autoStart = entry.arguments?.getBoolean("autoStart") == true
+                    )
+                }
+                composable(
+                    "personalSelectionScreen?autoStart={autoStart}",
+                    arguments = listOf(navArgument("autoStart") { type = NavType.BoolType; defaultValue = false })
+                ) { entry ->
+                    StrategySelectionScreen(
+                        navController, vpnPermissionLauncher,
+                        autoStart = entry.arguments?.getBoolean("autoStart") == true,
+                        personal = true
+                    )
+                }
             }
         }
     }

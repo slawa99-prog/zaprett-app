@@ -2,8 +2,6 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
-    id("com.google.gms.google-services")
-    id("com.google.firebase.crashlytics")
     kotlin("plugin.serialization") version "2.1.20"
     id("org.mozilla.rust-android-gradle.rust-android") version "0.9.6"
 }
@@ -11,13 +9,14 @@ plugins {
 android {
     namespace = "com.cherret.zaprett"
     compileSdk = 36
+    ndkVersion = "27.3.13750724"
 
     defaultConfig {
-        applicationId = "com.cherret.zaprett"
+        applicationId = "com.slawa99.zaprett.auto"
         minSdk = 28
         targetSdk = 35
-        versionCode = 30
-        versionName = "3.2"
+        versionCode = 38
+        versionName = "3.2-auto-test8"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
@@ -32,11 +31,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            buildConfigField("boolean", "send_firebase_analytics", "true")
-            buildConfigField("boolean", "auto_update", "true")
+            buildConfigField("boolean", "auto_update", "false")
         }
         debug {
-            buildConfigField("boolean", "send_firebase_analytics", "false")
             buildConfigField("boolean", "auto_update", "false")
         }
     }
@@ -89,9 +86,6 @@ dependencies {
     implementation(libs.ktor.client.okhttp)
     implementation(libs.okhttp)
     implementation(libs.serialization.json)
-    implementation(platform(libs.firebase.bom))
-    implementation(libs.firebase.analytics)
-    implementation(libs.firebase.crashlytics)
     implementation(libs.fragment.compose)
     implementation(libs.coil.compose)
     implementation(libs.compose.markdown)

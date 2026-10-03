@@ -7,21 +7,23 @@ import android.content.Context
 import android.content.Context.MODE_PRIVATE
 import android.content.Intent
 import android.net.VpnService
-import android.os.Build
 import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -36,6 +38,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Info
@@ -44,34 +47,88 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import com.cherret.zaprett.R
 import com.cherret.zaprett.ui.component.StrategySelectionItem
+import com.cherret.zaprett.ui.component.tvDpadScroll
 import com.cherret.zaprett.ui.viewmodel.StrategySelectionViewModel
+import com.cherret.zaprett.data.ServiceType
+import com.cherret.zaprett.utils.enableStrategy
+import com.cherret.zaprett.utils.getActiveStrategy
+import com.cherret.zaprett.utils.getServiceType
+import com.cherret.zaprett.utils.restartService
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun StrategySelectionScreen(navController: NavController, vpnLauncher: ActivityResultLauncher<Intent>, viewModel : StrategySelectionViewModel = viewModel()){
+fun StrategySelectionScreen(
+    navController: NavController,
+    vpnLauncher: ActivityResultLauncher<Intent>,
+    autoStart: Boolean = false,
+    personal: Boolean = false,
+    viewModel: StrategySelectionViewModel = viewModel()
+){
     val snackbarHostState = remember { SnackbarHostState() }
+    val listState = rememberLazyListState()
+    val actionFocus = remember { FocusRequester() }
     val strategyStates = viewModel.strategyStates
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("settings", MODE_PRIVATE)
+    var activePath by remember { mutableStateOf(getActiveStrategy(prefs).getOrNull()?.manifestPath.orEmpty()) }
     var showDialog = remember { mutableStateOf(false) }
     val requestVpnPermission by viewModel.requestVpnPermission.collectAsState()
     val error by viewModel.errorFlow.collectAsState()
+    var logCopied by remember(error) { mutableStateOf(false) }
+    val isTesting = viewModel.isTesting.value
+    val diagnostic = viewModel.diagnostic.value
+    val checked = viewModel.checkedStrategies.intValue
+    val total = viewModel.totalStrategies.intValue
+    val finishedStatus = viewModel.finishedStatus.value
+    val currentStage = viewModel.currentStage.value
+
+    suspend fun runAutoTest() {
+        val progress = viewModel.viewModelScope.launch {
+            snackbarHostState.showSnackbar(context.getString(
+                if (personal) R.string.personal_started else R.string.begin_selection_snack
+            ))
+        }
+        val selected = try { viewModel.performTest(autoApply = true) }
+        finally {
+            progress.cancel()
+            snackbarHostState.currentSnackbarData?.dismiss()
+        }
+        if (selected != null) {
+            activePath = getActiveStrategy(prefs).getOrNull()?.manifestPath.orEmpty()
+            snackbarHostState.showSnackbar(context.getString(R.string.selection_auto_applied, selected))
+        }
+    }
+
+    LaunchedEffect(isTesting) {
+        if (!isTesting) activePath = getActiveStrategy(prefs).getOrNull()?.manifestPath.orEmpty()
+    }
+
+    LaunchedEffect(autoStart, personal) {
+        viewModel.configureMode(personal)
+        actionFocus.requestFocus()
+        if (autoStart && !viewModel.noHostsCard.value) runAutoTest()
+    }
 
     if (showDialog.value) {
-        InfoAlert { showDialog.value = false }
+        InfoAlert(personal = personal) { showDialog.value = false }
     }
 
     LaunchedEffect(requestVpnPermission) {
@@ -93,18 +150,17 @@ fun StrategySelectionScreen(navController: NavController, vpnLauncher: ActivityR
             },
             title = { Text(stringResource(R.string.error_text)) },
             text = {
-                Text(stringResource(R.string.error_unknown))
+                Text(error)
             },
             dismissButton = {
                 TextButton(onClick = {
                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                     val clip: ClipData = ClipData.newPlainText("Error log", error)
                     clipboard.setPrimaryClip(clip)
-                    if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.S) {
-                        Toast.makeText(context, context.getString(R.string.log_copied), Toast.LENGTH_SHORT).show()
-                    }
+                    logCopied = true
+                    Toast.makeText(context, context.getString(R.string.log_copied), Toast.LENGTH_SHORT).show()
                 }) {
-                    Text(stringResource(R.string.btn_copy_log))
+                    Text(stringResource(if (logCopied) R.string.log_copied else R.string.btn_copy_log))
                 }
             },
             confirmButton = {
@@ -119,10 +175,11 @@ fun StrategySelectionScreen(navController: NavController, vpnLauncher: ActivityR
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            Column {
+              TopAppBar(
                 title = {
                     Text(
-                        text = stringResource(R.string.title_selection),
+                        text = stringResource(if (personal) R.string.personal_selection_title else R.string.title_selection),
                         fontSize = 30.sp,
                         fontFamily = FontFamily(Font(R.font.unbounded, FontWeight.Normal))
                     )
@@ -148,44 +205,89 @@ fun StrategySelectionScreen(navController: NavController, vpnLauncher: ActivityR
                     }
                 },
                 windowInsets = WindowInsets(0)
-            )
+              )
+              Column(
+                  modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
+                  verticalArrangement = Arrangement.spacedBy(6.dp)
+              ) {
+                  Text(
+                      if (finishedStatus.isNotBlank()) finishedStatus
+                      else stringResource(R.string.selection_checked_count, checked, total),
+                      style = MaterialTheme.typography.titleMedium
+                  )
+                  LinearProgressIndicator(
+                      progress = { if (total == 0) 0f else checked.toFloat() / total },
+                      modifier = Modifier.fillMaxWidth()
+                  )
+                  if (isTesting) {
+                      Text(
+                          stringResource(R.string.selection_checked_count, checked, total) +
+                              " · " + stringResource(R.string.selection_current_stage, currentStage),
+                          style = MaterialTheme.typography.bodyMedium
+                      )
+                  } else if (finishedStatus.isNotBlank()) {
+                      Text(
+                          stringResource(R.string.selection_checked_count, checked, total),
+                          style = MaterialTheme.typography.bodyMedium
+                      )
+                  }
+              }
+            }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
         content = { paddingValues ->
             LazyColumn (
-                contentPadding = PaddingValues(
-                    top = paddingValues.calculateTopPadding(),
-                    bottom = paddingValues.calculateBottomPadding() + 40.dp
-                ),
-                modifier = Modifier.fillMaxSize()
+                state = listState,
+                contentPadding = PaddingValues(bottom = 40.dp),
+                modifier = Modifier.fillMaxSize().padding(paddingValues).tvDpadScroll(listState)
             ) {
                 item {
-                    Row (
+                    Column (
                         modifier = Modifier
                             .fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center
+                        horizontalAlignment = Alignment.CenterHorizontally
                     )
                     {
                         NoHostsCard(viewModel.noHostsCard)
-                        FilledTonalButton(
-                            onClick = {
-                                viewModel.viewModelScope.launch {
-                                    snackbarHostState.showSnackbar(
-                                        context.getString(R.string.begin_selection_snack)
-                                    )
-                                    viewModel.performTest()
+                        if (getServiceType(prefs) != ServiceType.byedpi) {
+                            FilledTonalButton(
+                                modifier = Modifier.focusRequester(actionFocus),
+                                onClick = {
+                                    if (!isTesting) {
+                                        viewModel.viewModelScope.launch {
+                                            runAutoTest()
+                                        }
+                                    }
                                 }
+                            ) {
+                                Text(stringResource(if (isTesting) R.string.selection_running else R.string.selection_retry))
                             }
-                        ) {
-                            Text(stringResource(R.string.begin_selection))
+                        } else {
+                            FilledTonalButton(
+                                modifier = Modifier.focusRequester(actionFocus),
+                                onClick = {
+                                    if (!isTesting) {
+                                        viewModel.viewModelScope.launch { viewModel.performTest() }
+                                    }
+                                }
+                            ) {
+                                Text(stringResource(if (isTesting) R.string.selection_running else R.string.begin_selection))
+                            }
                         }
+                        if (diagnostic.isNotBlank()) {
+                            Text(diagnostic, modifier = Modifier.fillMaxWidth().padding(16.dp))
+                        }
+                        Text(
+                            stringResource(R.string.selection_http_only),
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                        )
                     }
                 }
                 when {
                     strategyStates.isEmpty() -> {
                         item {
-                            Box(
-                                modifier = Modifier.fillParentMaxSize(),
+                                Box(
+                                    modifier = Modifier.fillMaxWidth(),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
@@ -197,7 +299,41 @@ fun StrategySelectionScreen(navController: NavController, vpnLauncher: ActivityR
                     }
                     else -> {
                         items(strategyStates, key = { it.path }) { item ->
-                            StrategySelectionItem(item, prefs, context, snackbarHostState)
+                            StrategySelectionItem(
+                                strategy = item,
+                                isTesting = isTesting,
+                                isActive = item.path == activePath,
+                                onApply = {
+                                    viewModel.viewModelScope.launch {
+                                        try {
+                                            enableStrategy(item.path, prefs)
+                                            activePath = item.path
+                                            viewModel.noteSelectedStrategy(item.name)
+                                            if (getServiceType(prefs) == ServiceType.byedpi) {
+                                                snackbarHostState.showSnackbar(context.getString(R.string.strategy_applied))
+                                            } else {
+                                                val response = snackbarHostState.showSnackbar(
+                                                    context.getString(R.string.selection_restart_to_try, item.name),
+                                                    actionLabel = context.getString(R.string.btn_restart_service),
+                                                    withDismissAction = true
+                                                )
+                                                if (response == SnackbarResult.ActionPerformed) {
+                                                    restartService { error ->
+                                                        viewModel.viewModelScope.launch {
+                                                            snackbarHostState.showSnackbar(
+                                                                if (error.isBlank()) context.getString(R.string.selection_restarted)
+                                                                else error
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        } catch (error: Exception) {
+                                            snackbarHostState.showSnackbar(error.message ?: context.getString(R.string.error_unknown))
+                                        }
+                                    }
+                                }
+                            )
                         }
                     }
                 }
@@ -207,10 +343,12 @@ fun StrategySelectionScreen(navController: NavController, vpnLauncher: ActivityR
 }
 
 @Composable
-fun InfoAlert(onDismiss: () -> Unit) {
+fun InfoAlert(personal: Boolean = false, onDismiss: () -> Unit) {
     AlertDialog(
         title = { Text(text = stringResource(R.string.strategy_selection_info_title)) },
-        text = { Text(text = stringResource(R.string.strategy_selection_info_msg)) },
+        text = { Text(text = stringResource(
+            if (personal) R.string.personal_selection_info else R.string.strategy_selection_info_msg
+        )) },
         onDismissRequest = onDismiss,
         confirmButton = {
             TextButton(onClick = onDismiss) {

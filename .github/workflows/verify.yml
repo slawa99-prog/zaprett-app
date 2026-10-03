@@ -1,0 +1,45 @@
+name: Verify Android build
+
+on:
+  push:
+    branches:
+      - feature/auto-strategy
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - uses: android-actions/setup-android@v4
+      - name: Verify bundled catalog
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, json
+          root = Path('app/src/main/assets/youtube_pack')
+          for manifest_path in (root / 'manifests').glob('**/*.json'):
+              manifest = json.loads(manifest_path.read_text())
+              artifact = root / manifest['artifact']['url'].split('/refs/heads/main/')[1]
+              actual = hashlib.sha256(artifact.read_bytes()).hexdigest()
+              assert actual == manifest['artifact']['sha256'], str(artifact)
+          PY
+      - name: Install native toolchain
+        run: |
+          rustup default stable
+          cargo install cargo-ndk --locked
+          rustup target add armv7-linux-androideabi aarch64-linux-android i686-linux-android x86_64-linux-android
+      - name: Test and compile debug APK
+        run: ./gradlew testDebugUnitTest assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zaprett-auto-test-apk
+          path: app/build/outputs/apk/debug/app-debug.apk

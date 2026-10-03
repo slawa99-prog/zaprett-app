@@ -1,7 +1,5 @@
 package com.cherret.zaprett.ui.component
 
-import android.content.Context
-import android.content.SharedPreferences
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
@@ -9,11 +7,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -25,13 +20,9 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ProgressIndicatorDefaults
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -40,7 +31,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,10 +44,6 @@ import com.cherret.zaprett.data.StorageData
 import com.cherret.zaprett.data.StrategyCheckResult
 import com.cherret.zaprett.data.StrategyTestingStatus
 import com.cherret.zaprett.ui.viewmodel.BaseRepoViewModel
-import com.cherret.zaprett.utils.disableStrategy
-import com.cherret.zaprett.utils.enableStrategy
-import com.cherret.zaprett.utils.getActiveStrategy
-import kotlinx.coroutines.launch
 
 @Composable
 fun ListSwitchItem(item: StorageData, isChecked: Boolean, isUsing: Boolean, onCheckedChange: (Boolean) -> Unit, onDeleteClick: () -> Unit) {
@@ -248,8 +234,7 @@ fun RepoItem(
 
 
 @Composable
-fun StrategySelectionItem(strategy : StrategyCheckResult, prefs : SharedPreferences, context : Context, snackbarHostState : SnackbarHostState) {
-    val scope = rememberCoroutineScope()
+fun StrategySelectionItem(strategy: StrategyCheckResult, isTesting: Boolean, isActive: Boolean, onApply: () -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     ElevatedCard (
         elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
@@ -271,28 +256,15 @@ fun StrategySelectionItem(strategy : StrategyCheckResult, prefs : SharedPreferen
         {
             Row {
                 Text(
-                    text = strategy.path,
+                    text = strategy.name,
                     modifier = Modifier
                        .weight(1f)
                 )
-                FilledTonalIconButton(
-                    onClick = {
-                        getActiveStrategy(prefs).getOrNull()?.file
-                            ?.takeIf { it.isNotEmpty() }
-                            ?.let { disableStrategy(it, prefs) }
-                        enableStrategy(strategy.path, prefs)
-                        scope.launch {
-                            snackbarHostState.showSnackbar(
-                                message = context.getString(R.string.strategy_applied)
-                            )
-                        }
-                    },
-                    enabled = strategy.status == StrategyTestingStatus.Completed
+                FilledTonalButton(
+                    onClick = onApply,
+                    enabled = !isTesting && strategy.status == StrategyTestingStatus.Completed && !isActive
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Check,
-                        contentDescription = "apply"
-                    )
+                    Text(stringResource(if (isActive) R.string.selection_active else R.string.selection_try_strategy))
                 }
             }
             Row {
@@ -303,29 +275,18 @@ fun StrategySelectionItem(strategy : StrategyCheckResult, prefs : SharedPreferen
                     fontSize = 12.sp,
                 )
             }
-            Row (
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.End
-            ) {
-                LinearProgressIndicator(
-                    modifier = Modifier
-                        .weight(1f),
-
-                    progress = {
-                        strategy.progress
-                    },
-                    color = ProgressIndicatorDefaults.linearColor,
-                    trackColor = ProgressIndicatorDefaults.linearTrackColor,
-                    strokeCap = ProgressIndicatorDefaults.LinearStrokeCap,
-                )
+            if (strategy.problem.isNotEmpty()) {
+                Text(text = strategy.problem, style = MaterialTheme.typography.bodySmall)
+            }
+            if (strategy.status == StrategyTestingStatus.Completed && strategy.checkedDomains > 0) {
                 Text(
-                    text = "${(strategy.progress*100).toInt()}%",
-                    modifier = Modifier
-                        .padding(start = 16.dp),
-
+                    text = stringResource(
+                        R.string.selection_reachability,
+                        strategy.domains.size,
+                        strategy.checkedDomains,
+                        (strategy.progress * 100).toInt()
+                    ),
+                    modifier = Modifier.padding(top = 8.dp)
                 )
             }
         }
@@ -343,8 +304,8 @@ fun StrategySelectionItem(strategy : StrategyCheckResult, prefs : SharedPreferen
                 Text(
                     text = stringResource(R.string.selection_available_domains)
                 )
-                LazyColumn(modifier = Modifier.heightIn(max = 300.dp)) {
-                    items(strategy.domains) { item ->
+                Column {
+                    strategy.domains.forEach { item ->
                         Card(
                             elevation = CardDefaults.cardElevation(4.dp),
                             modifier = Modifier

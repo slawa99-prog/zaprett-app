@@ -39,14 +39,22 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     private val _serviceType = MutableStateFlow(ServiceType.byedpi)
     val serviceType: StateFlow<ServiceType> = _serviceType
 
-    private val _autoRestart = MutableStateFlow(false)
-    val autoRestart: StateFlow<Boolean> = _autoRestart
+    private val _startOnBoot = MutableStateFlow(false)
+    val startOnBoot: StateFlow<Boolean> = _startOnBoot.asStateFlow()
+    private val _startOnBootError = MutableStateFlow("")
+    val startOnBootError: StateFlow<String> = _startOnBootError.asStateFlow()
+    private var changingStartOnBoot = false
 
     init {
         refreshApplications()
         _serviceType.value = getServiceType(prefs)
-        getStartOnBoot(prefs) { value ->
-            _autoRestart.value = value
+        refreshStartOnBoot()
+    }
+
+    private fun refreshStartOnBoot() {
+        getStartOnBoot(prefs) { result ->
+            result.onSuccess { _startOnBoot.value = it }
+                .onFailure { _startOnBootError.value = it.message.orEmpty() }
         }
     }
 
@@ -137,6 +145,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                                     })
                                 }
                                 _serviceType.value = serviceType
+                                refreshStartOnBoot()
                             } else {
                                 openNoModuleDialog.value = true
                             }
@@ -149,16 +158,22 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             ServiceType.byedpi -> {
                 setServiceType(sharedPreferences, serviceType)
                 _serviceType.value = ServiceType.byedpi
+                _startOnBoot.value = false
             }
         }
     }
 
-    fun handleAutoRestart(context: Context) {
-        val sharedPreferences = context.getSharedPreferences("settings", MODE_PRIVATE)
-        if (getServiceType(sharedPreferences) != ServiceType.byedpi) {
-            setStartOnBoot(prefs) { value ->
-                _autoRestart.value = value
-            }
+    fun handleStartOnBoot(enabled: Boolean) {
+        if (changingStartOnBoot || getServiceType(prefs) == ServiceType.byedpi) return
+        changingStartOnBoot = true
+        setStartOnBoot(prefs, enabled) { result ->
+            changingStartOnBoot = false
+            result.onSuccess { _startOnBoot.value = it }
+                .onFailure { _startOnBootError.value = it.message.orEmpty() }
         }
+    }
+
+    fun clearStartOnBootError() {
+        _startOnBootError.value = ""
     }
 }

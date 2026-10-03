@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -83,6 +84,7 @@ import com.cherret.zaprett.ui.component.SettingDropDown
 import com.cherret.zaprett.ui.component.SettingsActionItem
 import com.cherret.zaprett.ui.component.SettingsItem
 import com.cherret.zaprett.ui.component.SettingsSection
+import com.cherret.zaprett.ui.component.tvDpadScroll
 import com.cherret.zaprett.ui.component.TextDialog
 import com.cherret.zaprett.ui.viewmodel.SettingsViewModel
 import com.cherret.zaprett.utils.getAppsListMode
@@ -91,14 +93,14 @@ import com.cherret.zaprett.utils.setAppsListMode
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(navController: NavController, viewModel : SettingsViewModel = viewModel()) {
+    val listState = rememberLazyListState()
     val context = LocalContext.current
     val sharedPreferences = remember { context.getSharedPreferences("settings", Context.MODE_PRIVATE) }
     val editor = remember { sharedPreferences.edit() }
     val serviceType = viewModel.serviceType.collectAsState()
     val updateOnBoot = remember { mutableStateOf(sharedPreferences.getBoolean("update_on_boot", true)) }
-    val autoRestart = viewModel.autoRestart.collectAsState()
-    val autoUpdate = remember { mutableStateOf(sharedPreferences.getBoolean("auto_update", BuildConfig.auto_update)) }
-    val sendFirebaseAnalytics = remember { mutableStateOf(sharedPreferences.getBoolean("send_firebase_analytics", BuildConfig.send_firebase_analytics)) }
+    val startOnBoot = viewModel.startOnBoot.collectAsState()
+    val startOnBootError by viewModel.startOnBootError.collectAsState()
     val ipv6 = remember { mutableStateOf(sharedPreferences.getBoolean("ipv6",false)) }
     val openNoRootDialog = remember { mutableStateOf(false) }
     val openNoModuleDialog = remember { mutableStateOf(false) }
@@ -127,7 +129,7 @@ fun SettingsScreen(navController: NavController, viewModel : SettingsViewModel =
                             context = context,
                             serviceType = ServiceType.byedpi,
                             openNoRootDialog = openNoRootDialog,
-                            openNoModuleDialog = openNoRootDialog
+                            openNoModuleDialog = openNoModuleDialog
                         )
                     }
                 ),
@@ -138,7 +140,7 @@ fun SettingsScreen(navController: NavController, viewModel : SettingsViewModel =
                             context = context,
                             serviceType = ServiceType.nfqws,
                             openNoRootDialog = openNoRootDialog,
-                            openNoModuleDialog = openNoRootDialog
+                            openNoModuleDialog = openNoModuleDialog
                         )
                     }
                 ),
@@ -149,7 +151,7 @@ fun SettingsScreen(navController: NavController, viewModel : SettingsViewModel =
                             context = context,
                             serviceType = ServiceType.nfqws2,
                             openNoRootDialog = openNoRootDialog,
-                            openNoModuleDialog = openNoRootDialog
+                            openNoModuleDialog = openNoModuleDialog
                         )
                     }
                 )
@@ -161,22 +163,6 @@ fun SettingsScreen(navController: NavController, viewModel : SettingsViewModel =
             onToggle = {
                 updateOnBoot.value = it
                 editor.putBoolean("update_on_boot", it).apply()
-            }
-        ),
-        Setting.Toggle(
-            title = stringResource(R.string.btn_autoupdate),
-            checked = autoUpdate.value,
-            onToggle = {
-                autoUpdate.value = it
-                editor.putBoolean("auto_update", it).apply()
-            }
-        ),
-        Setting.Toggle(
-            title = stringResource(R.string.btn_send_firebase_analytics),
-            checked = sendFirebaseAnalytics.value,
-            onToggle = {
-                sendFirebaseAnalytics.value = it
-                editor.putBoolean("send_firebase_analytics", it).apply()
             }
         ),
         Setting.Action(
@@ -205,17 +191,10 @@ fun SettingsScreen(navController: NavController, viewModel : SettingsViewModel =
                 showBlackDialog.value = true
             }
         ),
-        Setting.Section(stringResource(R.string.title_selection)),
-        Setting.Action(
-            title = stringResource(R.string.begin_selection),
-            onClick = {
-                navController.navigate("selectionScreen")
-            }
-        ),
         Setting.Action(
             title = stringResource(R.string.change_probe_timeout),
             onClick = {
-                textDialogValue.value = sharedPreferences.getLong("probe_timeout", 1000L).toString()
+                textDialogValue.value = sharedPreferences.getLong("probe_timeout", 6000L).toString()
                 showChangeProbeTimeout.value = true
             }
         ),
@@ -250,13 +229,11 @@ fun SettingsScreen(navController: NavController, viewModel : SettingsViewModel =
             }
         ),
         Setting.Section(title = stringResource(R.string.zapret_section)),
-        Setting.Toggle(
+        if (serviceType.value != ServiceType.byedpi) Setting.Toggle(
             title = stringResource(R.string.btn_autorestart),
-            checked = autoRestart.value,
-            onToggle = {
-                viewModel.handleAutoRestart(context)
-            }
-        ),
+            checked = startOnBoot.value,
+            onToggle = viewModel::handleStartOnBoot
+        ) else Setting.Section(stringResource(R.string.zapret_root_only)),
         Setting.Action(
             title = stringResource(R.string.bins_repo),
             onClick = {
@@ -284,6 +261,14 @@ fun SettingsScreen(navController: NavController, viewModel : SettingsViewModel =
             title = stringResource(R.string.error_no_module_title),
             message = stringResource(R.string.error_no_module_message),
             onDismiss = { openNoModuleDialog.value = false }
+        )
+    }
+
+    if (startOnBootError.isNotBlank()) {
+        InfoDialog(
+            title = stringResource(R.string.error_text),
+            message = startOnBootError,
+            onDismiss = viewModel::clearStartOnBootError
         )
     }
 
@@ -390,9 +375,11 @@ fun SettingsScreen(navController: NavController, viewModel : SettingsViewModel =
         },
         content = { paddingValues ->
             LazyColumn(
+                state = listState,
                 modifier = Modifier
                     .padding(paddingValues)
-                    .fillMaxSize(),
+                    .fillMaxSize()
+                    .tvDpadScroll(listState),
                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 25.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {

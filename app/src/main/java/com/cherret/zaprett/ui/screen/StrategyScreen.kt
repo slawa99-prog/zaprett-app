@@ -4,18 +4,22 @@ package com.cherret.zaprett.ui.screen
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -27,6 +31,8 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -46,6 +52,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
@@ -55,12 +63,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import androidx.navigation.compose.currentBackStackEntryAsState
 import com.cherret.zaprett.R
 import com.cherret.zaprett.data.ServiceType
+import com.cherret.zaprett.data.StrategySelectionHistory
 import com.cherret.zaprett.ui.component.GenerateManifestDialog
 import com.cherret.zaprett.ui.component.ListSwitchItem
+import com.cherret.zaprett.ui.component.SettingsItem
+import com.cherret.zaprett.ui.component.tvDpadScroll
 import com.cherret.zaprett.ui.viewmodel.StrategyViewModel
 import com.cherret.zaprett.utils.getManifestsPath
+import com.cherret.zaprett.utils.getActiveStrategy
 import com.cherret.zaprett.utils.getServiceType
 import com.cherret.zaprett.utils.getZaprettPath
 
@@ -71,7 +84,19 @@ fun StrategyScreen(navController: NavController, viewModel: StrategyViewModel = 
     val sharedPreferences = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+    val listState = rememberLazyListState()
+    val actionFocus = remember { FocusRequester() }
+    val serviceType = getServiceType(sharedPreferences)
+    // Re-read on return from selection; SharedPreferences itself is not Compose state.
+    val backStackEntry by navController.currentBackStackEntryAsState()
+    val previousResults = backStackEntry?.destination?.route == "strategies" &&
+        StrategySelectionHistory.load(sharedPreferences, serviceType)?.results?.isNotEmpty() == true
+    val previousPersonalResults = backStackEntry?.destination?.route == "strategies" &&
+        StrategySelectionHistory.load(sharedPreferences, serviceType, personal = true)?.results?.isNotEmpty() == true
+    val activePersonal = getActiveStrategy(sharedPreferences).getOrNull()
+        ?.takeIf { it.manifestPath.contains("/strategies/nfqws/personal/") }
     val state by viewModel.listUiState.collectAsState()
+    var logCopied by remember(state.error) { mutableStateOf(false) }
     val showPermissionDialog by viewModel.showNoPermissionDialog.collectAsState()
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -91,6 +116,9 @@ fun StrategyScreen(navController: NavController, viewModel: StrategyViewModel = 
 
     LaunchedEffect(Unit) {
         viewModel.refresh()
+        viewModel.installYouTubePackIfNeeded()
+        viewModel.refreshStartOnBoot()
+        if (serviceType == ServiceType.nfqws) actionFocus.requestFocus()
     }
 
     if (!state.error.isNullOrEmpty()) {
@@ -100,18 +128,17 @@ fun StrategyScreen(navController: NavController, viewModel: StrategyViewModel = 
             },
             title = { Text(stringResource(R.string.error_text)) },
             text = {
-                Text(stringResource(R.string.error_unknown))
+                Text(state.error.orEmpty())
             },
             dismissButton = {
                 TextButton(onClick = {
                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                     val clip: ClipData = ClipData.newPlainText("Error log", state.error)
                     clipboard.setPrimaryClip(clip)
-                    if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.S) {
-                        Toast.makeText(context, context.getString(R.string.log_copied), Toast.LENGTH_SHORT).show()
-                    }
+                    logCopied = true
+                    Toast.makeText(context, context.getString(R.string.log_copied), Toast.LENGTH_SHORT).show()
                 }) {
-                    Text(stringResource(R.string.btn_copy_log))
+                    Text(stringResource(if (logCopied) R.string.log_copied else R.string.btn_copy_log))
                 }
             },
             confirmButton = {
@@ -146,17 +173,91 @@ fun StrategyScreen(navController: NavController, viewModel: StrategyViewModel = 
                 modifier = Modifier.fillMaxSize()
             ) {
                 LazyColumn(
+                    state = listState,
                     contentPadding = PaddingValues(
                         top = paddingValues.calculateTopPadding(),
                         bottom = paddingValues.calculateBottomPadding() + 80.dp
                     ),
-                    modifier = Modifier.navigationBarsPadding().fillMaxSize()
+                    modifier = Modifier.navigationBarsPadding().fillMaxSize().tvDpadScroll(listState)
                 ) {
+                    item {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text(stringResource(R.string.youtube_selection_title), style = MaterialTheme.typography.titleLarge)
+                            when (serviceType) {
+                                ServiceType.nfqws -> {
+                                    Text(viewModel.packStatus.value.ifBlank { stringResource(R.string.youtube_pack_ready) })
+                                    FilledTonalButton(
+                                        enabled = !viewModel.isInstallingPack.value && state.items.isNotEmpty(),
+                                        modifier = Modifier.focusRequester(actionFocus),
+                                        onClick = { navController.navigate("selectionScreen?autoStart=true") }
+                                    ) {
+                                        Text(stringResource(R.string.youtube_auto_search))
+                                    }
+                                    if (previousResults) {
+                                        FilledTonalButton(
+                                            onClick = { navController.navigate("selectionScreen?autoStart=false") }
+                                        ) {
+                                            Text(stringResource(R.string.selection_previous_results))
+                                        }
+                                    }
+                                    Text(
+                                        stringResource(R.string.personal_selection_detail),
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                    if (activePersonal != null) {
+                                        Text(stringResource(R.string.personal_active, activePersonal.name))
+                                    }
+                                    FilledTonalButton(
+                                        enabled = !viewModel.isInstallingPack.value && state.items.isNotEmpty(),
+                                        onClick = { navController.navigate("personalSelectionScreen?autoStart=true") }
+                                    ) {
+                                        Text(stringResource(R.string.personal_selection_button))
+                                    }
+                                    if (previousPersonalResults) {
+                                        FilledTonalButton(
+                                            onClick = { navController.navigate("personalSelectionScreen?autoStart=false") }
+                                        ) {
+                                            Text(stringResource(R.string.personal_previous_results))
+                                        }
+                                    }
+                                    FilledTonalButton(
+                                        enabled = !viewModel.isInstallingPack.value,
+                                        onClick = { viewModel.installYouTubePackIfNeeded(force = true) }
+                                    ) {
+                                        Text(stringResource(R.string.youtube_pack_retry))
+                                    }
+                                    val bootEnabled = viewModel.startOnBoot.value
+                                    if (bootEnabled != null) {
+                                        SettingsItem(
+                                            title = stringResource(R.string.btn_autorestart),
+                                            checked = bootEnabled,
+                                            onToggle = viewModel::changeStartOnBoot,
+                                            onCheckedChange = viewModel::changeStartOnBoot
+                                        )
+                                    } else if (viewModel.startOnBootBusy.value) {
+                                        Text(stringResource(R.string.autostart_checking))
+                                    }
+                                    Text(stringResource(R.string.autostart_detail), style = MaterialTheme.typography.bodySmall)
+                                    if (viewModel.startOnBootError.value.isNotBlank()) {
+                                        Text(viewModel.startOnBootError.value, color = MaterialTheme.colorScheme.error)
+                                        FilledTonalButton(onClick = viewModel::refreshStartOnBoot) {
+                                            Text(stringResource(R.string.autostart_retry))
+                                        }
+                                    }
+                                }
+                                ServiceType.nfqws2 -> Text(stringResource(R.string.youtube_pack_nfqws2))
+                                ServiceType.byedpi -> Text(stringResource(R.string.youtube_pack_root))
+                            }
+                        }
+                    }
                     when {
                         state.items.isEmpty() -> {
                             item {
                                 Box(
-                                    modifier = Modifier.fillParentMaxSize(),
+                                    modifier = Modifier.fillMaxSize(),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text(

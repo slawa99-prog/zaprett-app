@@ -7,6 +7,7 @@ import org.json.JSONObject
 /** The last completed selection, kept on the device across activity and process restarts. */
 object StrategySelectionHistory {
     private const val KEY = "strategy_selection_history_v1"
+    private const val PERSONAL_KEY = "personal_strategy_selection_history_v1"
 
     data class Snapshot(
         val serviceType: ServiceType,
@@ -16,8 +17,8 @@ object StrategySelectionHistory {
         val diagnostic: String
     )
 
-    fun load(prefs: SharedPreferences, serviceType: ServiceType): Snapshot? = runCatching {
-        val raw = prefs.getString(KEY, null) ?: return@runCatching null
+    fun load(prefs: SharedPreferences, serviceType: ServiceType, personal: Boolean = false): Snapshot? = runCatching {
+        val raw = prefs.getString(if (personal) PERSONAL_KEY else KEY, null) ?: return@runCatching null
         val json = JSONObject(raw)
         if (json.optInt("version") != 1 || json.optString("serviceType") != serviceType.name) return@runCatching null
         val rows = json.getJSONArray("results")
@@ -44,7 +45,7 @@ object StrategySelectionHistory {
         Snapshot(serviceType, results, json.optInt("checked"), json.optString("summary"), json.optString("diagnostic"))
     }.getOrNull()
 
-    fun save(prefs: SharedPreferences, snapshot: Snapshot): Boolean {
+    fun save(prefs: SharedPreferences, snapshot: Snapshot, personal: Boolean = false): Boolean {
         val json = JSONObject()
             .put("version", 1)
             .put("serviceType", snapshot.serviceType.name)
@@ -64,6 +65,6 @@ object StrategySelectionHistory {
                 .put("problem", item.problem)
                 .put("checkedDomains", item.checkedDomains))
         }
-        return prefs.edit().putString(KEY, json.put("results", rows).toString()).commit()
+        return prefs.edit().putString(if (personal) PERSONAL_KEY else KEY, json.put("results", rows).toString()).commit()
     }
 }

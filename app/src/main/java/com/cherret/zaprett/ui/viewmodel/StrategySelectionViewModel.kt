@@ -13,6 +13,7 @@ import com.cherret.zaprett.R
 import com.cherret.zaprett.byedpi.ByeDpiVpnService
 import com.cherret.zaprett.data.ServiceStatus
 import com.cherret.zaprett.data.ServiceType
+import com.cherret.zaprett.data.StorageData
 import com.cherret.zaprett.data.StrategyCheckResult
 import com.cherret.zaprett.data.StrategySelectionHistory
 import com.cherret.zaprett.data.StrategyTestingStatus
@@ -22,6 +23,8 @@ import com.cherret.zaprett.utils.getActiveLists
 import com.cherret.zaprett.utils.getAllStrategies
 import com.cherret.zaprett.utils.getActiveStrategy
 import com.cherret.zaprett.utils.getServiceType
+import com.cherret.zaprett.utils.PersonalStrategyFiles
+import com.cherret.zaprett.utils.PersonalStrategyMutator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
@@ -68,6 +71,7 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
         private set
     var finishedStatus = mutableStateOf("")
         private set
+    private var personalMode = false
 
     private data class ProbeResult(val domain: String, val reached: Boolean, val problem: String = "")
 
@@ -90,9 +94,20 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
         return builder.build()
     }
 
+    fun configureMode(personal: Boolean) {
+        if (personalMode != personal) {
+            personalMode = personal
+            loadStrategies()
+        }
+    }
+
     fun loadStrategies(restoreResults: Boolean = true) {
-        val strategyList = getAllStrategies(prefs)
-        val snapshot = if (restoreResults) StrategySelectionHistory.load(prefs, getServiceType(prefs)) else null
+        val strategyList: Array<StorageData> = when {
+            personalMode && !restoreResults -> emptyArray()
+            personalMode -> PersonalStrategyFiles.installed()
+            else -> getAllStrategies(prefs)
+        }
+        val snapshot = if (restoreResults) StrategySelectionHistory.load(prefs, getServiceType(prefs), personalMode) else null
         val installed = strategyList.associateBy { it.manifestPath }
         val restored = snapshot?.results.orEmpty().mapNotNull { result ->
             installed[result.path]?.let { result.copy(name = it.name) }
@@ -116,6 +131,9 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
         finishedStatus.value = snapshot?.summary.orEmpty()
         diagnostic.value = snapshot?.diagnostic.orEmpty()
     }
+
+    private fun personalSeed(): StorageData? =
+        getActiveStrategy(prefs).getOrNull()?.takeIf { File(it.file).isFile }
 
     private suspend fun testDomain(client: OkHttpClient, domain: String): ProbeResult = withContext(Dispatchers.IO) {
         val request = Request.Builder().url("https://$domain/generate_204").build()
@@ -257,6 +275,7 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
         finishedStatus.value = ""
         currentStage.value = context.getString(R.string.selection_preparing)
         var selected: StrategyCheckResult? = null
+        val generated = mutableMapOf<String, PersonalStrategyMutator.Variant>()
         val serviceType = getServiceType(prefs)
         var originalPath = ""
         var currentPath = ""
@@ -266,16 +285,17 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
         var stage = context.getString(R.string.selection_preparing)
         try {
             loadStrategies(restoreResults = false)
-            val candidates = strategyStates.toList()
-            if (autoApply && serviceType != ServiceType.nfqws) {
+            if ((autoApply || personalMode) && serviceType != ServiceType.nfqws) {
                 throw IllegalStateException(context.getString(R.string.selection_nfqws_required))
             }
             if (serviceType != ServiceType.byedpi) checkRootService()
             originalPath = getActiveStrategy(prefs).getOrNull()?.manifestPath.orEmpty()
             currentPath = originalPath
             originalStrategyKnown = true
+            val seed = if (personalMode) personalSeed()
+                ?: throw IllegalStateException(context.getString(R.string.personal_no_seed)) else null
             val targets = probeTargets()
-            if (targets.isEmpty() || strategyStates.isEmpty()) {
+            if (targets.isEmpty() || (!personalMode && strategyStates.isEmpty())) {
                 throw IllegalStateException(context.getString(R.string.selection_no_targets))
             }
             if (serviceType != ServiceType.byedpi) {
@@ -294,7 +314,24 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
                 diagnostic.value = context.getString(R.string.selection_baseline, baselineCount, targets.size) +
                     if (firstProblem.isEmpty()) "" else " · $firstProblem"
             }
-            for (current in candidates) {
+            if (seed != null) {
+                val variants = withContext(Dispatchers.IO) {
+                    PersonalStrategyMutator.firstStage(File(seed.file).readText())
+                }
+                if (variants.isEmpty()) throw IllegalStateException(context.getString(R.string.personal_no_parameters))
+                variants.forEach { variant ->
+                    val item = withContext(Dispatchers.IO) { PersonalStrategyFiles.create(seed, variant) }
+                    generated[item.manifestPath] = variant
+                    strategyStates += StrategyCheckResult(
+                        path = item.manifestPath, name = item.name, progress = 0f,
+                        domains = emptyList(), status = StrategyTestingStatus.Waiting
+                    )
+                }
+                totalStrategies.intValue = strategyStates.size + 4
+                diagnostic.value += "\n" + context.getString(R.string.personal_seed, seed.name)
+            }
+            val candidates = strategyStates.toList()
+            suspend fun testCandidate(current: StrategyCheckResult) {
                 stage = current.name
                 currentStage.value = stage
                 updateResult(current.copy(status = StrategyTestingStatus.Testing))
@@ -349,6 +386,30 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
                     }
                 }
                 checkedStrategies.intValue++
+            }
+            candidates.forEach { testCandidate(it) }
+            if (seed != null) {
+                val best = strategyStates.filter { it.status == StrategyTestingStatus.Completed }
+                    .maxByOrNull { it.progress }
+                val bestVariant = best?.let { generated[it.path] }
+                if (bestVariant != null) {
+                    val alreadyTested = generated.values.mapTo(mutableSetOf()) { it.content }
+                    alreadyTested += withContext(Dispatchers.IO) { File(seed.file).readText() }
+                    val next = PersonalStrategyMutator.nextStage(bestVariant, alreadyTested)
+                    next.forEach { variant ->
+                        val item = withContext(Dispatchers.IO) { PersonalStrategyFiles.create(seed, variant) }
+                        generated[item.manifestPath] = variant
+                        strategyStates += StrategyCheckResult(
+                            path = item.manifestPath, name = item.name, progress = 0f,
+                            domains = emptyList(), status = StrategyTestingStatus.Waiting
+                        )
+                    }
+                    totalStrategies.intValue = strategyStates.size
+                    strategyStates.filter { it.status == StrategyTestingStatus.Waiting }
+                        .toList().forEach { testCandidate(it) }
+                } else {
+                    totalStrategies.intValue = strategyStates.size
+                }
             }
             if (autoApply && serviceType != ServiceType.byedpi) {
                 selected = strategyStates.filter {
@@ -429,8 +490,13 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
                 )
                 try {
                     withContext(Dispatchers.IO) {
-                        if (!StrategySelectionHistory.save(prefs, snapshot)) {
+                        if (!StrategySelectionHistory.save(prefs, snapshot, personalMode)) {
                             Log.e("StrategySelection", "Could not save strategy selection results")
+                        } else if (personalMode && generated.isNotEmpty()) {
+                            val activePath = getActiveStrategy(prefs).getOrNull()?.manifestPath.orEmpty()
+                            PersonalStrategyFiles.removeOldExcept(
+                                strategyStates.mapTo(mutableSetOf()) { it.path } + setOf(activePath, originalPath)
+                            )
                         }
                     }
                 } catch (error: Exception) {
@@ -451,8 +517,8 @@ class StrategySelectionViewModel(application: Application) : AndroidViewModel(ap
         val summary = context.getString(R.string.selection_finished_selected, name)
         finishedStatus.value = summary
         withContext(Dispatchers.IO) {
-            StrategySelectionHistory.load(prefs, getServiceType(prefs))?.let { previous ->
-                if (!StrategySelectionHistory.save(prefs, previous.copy(summary = summary))) {
+            StrategySelectionHistory.load(prefs, getServiceType(prefs), personalMode)?.let { previous ->
+                if (!StrategySelectionHistory.save(prefs, previous.copy(summary = summary), personalMode)) {
                     Log.e("StrategySelection", "Could not update selected strategy in saved results")
                 }
             }

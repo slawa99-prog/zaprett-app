@@ -74,7 +74,7 @@ sealed class Screen(val route: String, @StringRes val nameResId: Int, val icon: 
     object settings : Screen("settings", R.string.title_settings, Icons.Default.Settings)
 }
 val topLevelRoutes = listOf(Screen.home, Screen.hosts, Screen.strategies, Screen.ipsets, Screen.settings)
-val hideNavBar = listOf("repo?source={source}", "debugScreen", "selectionScreen?autoStart={autoStart}")
+val hideNavBar = listOf("repo?source={source}", "debugScreen", "selectionScreen?autoStart={autoStart}", "personalSelectionScreen?autoStart={autoStart}")
 class MainActivity : ComponentActivity() {
     private val viewModel: HomeViewModel by viewModels()
     private lateinit var notificationPermissionLauncher: ActivityResultLauncher<String>
@@ -234,6 +234,16 @@ class MainActivity : ComponentActivity() {
                     StrategySelectionScreen(
                         navController, vpnPermissionLauncher,
                         autoStart = entry.arguments?.getBoolean("autoStart") == true
+                    )
+                }
+                composable(
+                    "personalSelectionScreen?autoStart={autoStart}",
+                    arguments = listOf(navArgument("autoStart") { type = NavType.BoolType; defaultValue = false })
+                ) { entry ->
+                    StrategySelectionScreen(
+                        navController, vpnPermissionLauncher,
+                        autoStart = entry.arguments?.getBoolean("autoStart") == true,
+                        personal = true
                     )
                 }
             }

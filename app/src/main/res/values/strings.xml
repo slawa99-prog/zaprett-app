@@ -120,6 +120,16 @@
     <string name="selection_auto_apply">Find and enable the best strategy</string>
     <string name="selection_retry">Run selection again</string>
     <string name="selection_previous_results">Previous selection results</string>
+    <string name="personal_selection_button">Personal selection</string>
+    <string name="personal_previous_results">Personal selection results</string>
+    <string name="personal_selection_title">Personal selection</string>
+    <string name="personal_selection_detail">Create and test up to 12 variants of the enabled strategy. This may take several minutes.</string>
+    <string name="personal_selection_info">The app adjusts TCP 443 parameters in the enabled strategy, checks HTTPS reachability, then combines promising adjustments. The main catalog is unchanged. Scores measure reachable hosts; check video playback after choosing a variant.</string>
+    <string name="personal_no_seed">Enable a catalog strategy or run the standard selection first.</string>
+    <string name="personal_no_parameters">The enabled strategy has no supported TCP 443 parameters. Choose another catalog strategy.</string>
+    <string name="personal_seed">Starting strategy: %1$s</string>
+    <string name="personal_active">Enabled personal strategy: %1$s</string>
+    <string name="personal_started">Testing personal parameters. Keep this screen open.</string>
     <string name="selection_try_strategy">Try this one</string>
     <string name="selection_active">Enabled</string>
     <string name="selection_restart_to_try">Selected %1$s. Restart zaprett, then check video playback.</string>

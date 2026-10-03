@@ -75,7 +75,13 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun StrategySelectionScreen(navController: NavController, vpnLauncher: ActivityResultLauncher<Intent>, autoStart: Boolean = false, viewModel : StrategySelectionViewModel = viewModel()){
+fun StrategySelectionScreen(
+    navController: NavController,
+    vpnLauncher: ActivityResultLauncher<Intent>,
+    autoStart: Boolean = false,
+    personal: Boolean = false,
+    viewModel: StrategySelectionViewModel = viewModel()
+){
     val snackbarHostState = remember { SnackbarHostState() }
     val listState = rememberLazyListState()
     val actionFocus = remember { FocusRequester() }
@@ -96,7 +102,9 @@ fun StrategySelectionScreen(navController: NavController, vpnLauncher: ActivityR
 
     suspend fun runAutoTest() {
         val progress = viewModel.viewModelScope.launch {
-            snackbarHostState.showSnackbar(context.getString(R.string.begin_selection_snack))
+            snackbarHostState.showSnackbar(context.getString(
+                if (personal) R.string.personal_started else R.string.begin_selection_snack
+            ))
         }
         val selected = try { viewModel.performTest(autoApply = true) }
         finally {
@@ -113,13 +121,14 @@ fun StrategySelectionScreen(navController: NavController, vpnLauncher: ActivityR
         if (!isTesting) activePath = getActiveStrategy(prefs).getOrNull()?.manifestPath.orEmpty()
     }
 
-    LaunchedEffect(autoStart) {
+    LaunchedEffect(autoStart, personal) {
+        viewModel.configureMode(personal)
         actionFocus.requestFocus()
         if (autoStart && !viewModel.noHostsCard.value) runAutoTest()
     }
 
     if (showDialog.value) {
-        InfoAlert { showDialog.value = false }
+        InfoAlert(personal = personal) { showDialog.value = false }
     }
 
     LaunchedEffect(requestVpnPermission) {
@@ -170,7 +179,7 @@ fun StrategySelectionScreen(navController: NavController, vpnLauncher: ActivityR
               TopAppBar(
                 title = {
                     Text(
-                        text = stringResource(R.string.title_selection),
+                        text = stringResource(if (personal) R.string.personal_selection_title else R.string.title_selection),
                         fontSize = 30.sp,
                         fontFamily = FontFamily(Font(R.font.unbounded, FontWeight.Normal))
                     )
@@ -334,10 +343,12 @@ fun StrategySelectionScreen(navController: NavController, vpnLauncher: ActivityR
 }
 
 @Composable
-fun InfoAlert(onDismiss: () -> Unit) {
+fun InfoAlert(personal: Boolean = false, onDismiss: () -> Unit) {
     AlertDialog(
         title = { Text(text = stringResource(R.string.strategy_selection_info_title)) },
-        text = { Text(text = stringResource(R.string.strategy_selection_info_msg)) },
+        text = { Text(text = stringResource(
+            if (personal) R.string.personal_selection_info else R.string.strategy_selection_info_msg
+        )) },
         onDismissRequest = onDismiss,
         confirmButton = {
             TextButton(onClick = onDismiss) {

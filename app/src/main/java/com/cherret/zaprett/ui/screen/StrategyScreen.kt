@@ -73,6 +73,7 @@ import com.cherret.zaprett.ui.component.SettingsItem
 import com.cherret.zaprett.ui.component.tvDpadScroll
 import com.cherret.zaprett.ui.viewmodel.StrategyViewModel
 import com.cherret.zaprett.utils.getManifestsPath
+import com.cherret.zaprett.utils.getActiveStrategy
 import com.cherret.zaprett.utils.getServiceType
 import com.cherret.zaprett.utils.getZaprettPath
 
@@ -90,6 +91,10 @@ fun StrategyScreen(navController: NavController, viewModel: StrategyViewModel = 
     val backStackEntry by navController.currentBackStackEntryAsState()
     val previousResults = backStackEntry?.destination?.route == "strategies" &&
         StrategySelectionHistory.load(sharedPreferences, serviceType)?.results?.isNotEmpty() == true
+    val previousPersonalResults = backStackEntry?.destination?.route == "strategies" &&
+        StrategySelectionHistory.load(sharedPreferences, serviceType, personal = true)?.results?.isNotEmpty() == true
+    val activePersonal = getActiveStrategy(sharedPreferences).getOrNull()
+        ?.takeIf { it.manifestPath.contains("/strategies/nfqws/personal/") }
     val state by viewModel.listUiState.collectAsState()
     var logCopied by remember(state.error) { mutableStateOf(false) }
     val showPermissionDialog by viewModel.showNoPermissionDialog.collectAsState()
@@ -196,6 +201,26 @@ fun StrategyScreen(navController: NavController, viewModel: StrategyViewModel = 
                                             onClick = { navController.navigate("selectionScreen?autoStart=false") }
                                         ) {
                                             Text(stringResource(R.string.selection_previous_results))
+                                        }
+                                    }
+                                    Text(
+                                        stringResource(R.string.personal_selection_detail),
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                    if (activePersonal != null) {
+                                        Text(stringResource(R.string.personal_active, activePersonal.name))
+                                    }
+                                    FilledTonalButton(
+                                        enabled = !viewModel.isInstallingPack.value && state.items.isNotEmpty(),
+                                        onClick = { navController.navigate("personalSelectionScreen?autoStart=true") }
+                                    ) {
+                                        Text(stringResource(R.string.personal_selection_button))
+                                    }
+                                    if (previousPersonalResults) {
+                                        FilledTonalButton(
+                                            onClick = { navController.navigate("personalSelectionScreen?autoStart=false") }
+                                        ) {
+                                            Text(stringResource(R.string.personal_previous_results))
                                         }
                                     }
                                     FilledTonalButton(

@@ -50,7 +50,9 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+        // TV has no software navigation bar. Immersive mode can put Android's
+        // first-run confirmation above the app and intercept remote input.
+        window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_FULLSCREEN
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL; setBackgroundColor(bg)
             setPadding(dp(24), dp(20), dp(24), dp(20))

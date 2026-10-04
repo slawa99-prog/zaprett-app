@@ -40,17 +40,18 @@ class TvNavigationTest {
             if (ready) { instrument.waitForIdleSync(); return }
             Thread.sleep(100)
         }
-        shell("mkdir -p /sdcard/Download/pocket-tv-qa; screencap -p /sdcard/Download/pocket-tv-qa/window-failure.png; dumpsys window > /sdcard/Download/pocket-tv-qa/window.txt")
+        shell("mkdir -p /sdcard/Download/pocket-tv-qa")
+        shell("screencap -p /sdcard/Download/pocket-tv-qa/window-failure.png")
+        println(String(shell("dumpsys window")).lineSequence().filter { "mCurrentFocus" in it || "mFocusedApp" in it }.joinToString("\n"))
         fail("Activity did not receive input focus; destroyed=${activity.isDestroyed}, finishing=${activity.isFinishing}, changing=${activity.isChangingConfigurations}")
     }
-    private fun shell(command: String) {
+    private fun shell(command: String): ByteArray =
         ParcelFileDescriptor.AutoCloseInputStream(instrument.uiAutomation.executeShellCommand(command)).use { it.readBytes() }
-    }
     private fun screenshot(activity: Activity, name: String) {
         waitForWindow(activity)
         // Gradle uninstalls the target APK after instrumentation; app-private files disappear.
-        val command = "mkdir -p /sdcard/Download/pocket-tv-qa && screencap -p /sdcard/Download/pocket-tv-qa/$name.png"
-        shell(command)
+        shell("mkdir -p /sdcard/Download/pocket-tv-qa")
+        shell("screencap -p /sdcard/Download/pocket-tv-qa/$name.png")
     }
     @Test fun remoteNavigationAndHistorySurviveActivityRestart() {
         val fake = FakeBackend()

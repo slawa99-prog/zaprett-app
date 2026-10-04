@@ -16,6 +16,7 @@ case "$1" in
  stop) echo stopped > "$mod/state" ;;
  strategy) IFS= read -r name; printf '%s\n' "$name" > "$mod/config/current-strategy" ;;
  test)
+   [ "${FAKE_STUBBORN:-0}" != 1 ] || trap '' TERM
    while IFS= read -r name; do
      printf '@@TESTING %s\n' "$name"
      sleep "${FAKE_TEST_DELAY:-0.2}"
@@ -98,6 +99,15 @@ class BridgeTest(unittest.TestCase):
         self.assertIn('@@EXIT 7', out)
         self.assertIn('@@RESULT OK', out)
         self.assertEqual('stopped', (self.mod / 'state').read_text().strip())
+
+    def test_cancel_can_stop_a_tester_ignoring_term(self):
+        self.env['FAKE_STUBBORN'] = '1'
+        self.env['FAKE_TEST_DELAY'] = '30'
+        self.call('launch-test', 'all', 'stubborn')
+        self.call('cancel-test')
+        out = self.done(timeout=25)
+        self.assertIn('@@STATE cancelled', out)
+        self.assertEqual('running', (self.mod / 'state').read_text().strip())
 
     def test_stale_owner_is_not_running_or_killed(self):
         self.call('launch-test', 'youtube', 'stale')

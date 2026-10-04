@@ -135,9 +135,9 @@ stop_test_child() {
     n=0
     while alive "$SESSION/child" && [ "$n" -lt 12 ]; do sleep 1; n=$((n+1)); done
     if alive "$SESSION/child"; then
-        kill -TERM -- "-$cpid" 2>/dev/null || true
+        kill -TERM "-$cpid" 2>/dev/null || true
         sleep 1
-        if alive "$SESSION/child"; then kill -KILL -- "-$cpid" 2>/dev/null || true; fi
+        if alive "$SESSION/child"; then kill -KILL "-$cpid" 2>/dev/null || true; fi
     fi
 }
 run_test() {

@@ -226,15 +226,16 @@ class MainActivity : Activity() {
     }
     private fun render() {
         if (!::content.isInitialized) return
+        val restorationFailed = app.snapshot.restore == "failed" && app.module.service != "running"
         status.text = when {
             app.busy.isNotEmpty() -> app.busy
             app.error.isNotEmpty() -> "${app.error}\nOK — подробности"
-            app.snapshot.restore == "failed" -> "Pocket не смог восстановить сервис. Откройте журнал и нажмите «Перезапустить сервис»."
+            restorationFailed -> "Pocket не смог восстановить сервис. Откройте журнал и нажмите «Перезапустить сервис»."
             app.notice.isNotEmpty() -> app.notice
             app.connected -> "Pocket ${app.module.version}  ·  сервис ${app.serviceLabel(app.module.service)}"
             else -> "Для управления требуется Zapret Pocket и разрешение Magisk"
         }
-        status.setTextColor(if (app.error.isNotEmpty() || app.snapshot.restore == "failed") Color.rgb(255, 199, 164) else muted)
+        status.setTextColor(if (app.error.isNotEmpty() || restorationFailed) Color.rgb(255, 199, 164) else muted)
         status.isFocusable = app.error.isNotEmpty(); status.isClickable = app.error.isNotEmpty()
         val m = app.module; val s = app.snapshot
         val idle = app.busy.isEmpty()

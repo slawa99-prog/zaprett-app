@@ -1,0 +1,93 @@
+package com.slawa99.pockettv
+
+import android.app.Activity
+import android.content.Intent
+import android.graphics.Bitmap
+import android.view.KeyEvent
+import android.view.View
+import android.view.ViewGroup
+import android.widget.ListView
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import org.junit.Assert.*
+import org.junit.Test
+import org.junit.runner.RunWith
+import java.io.File
+
+@RunWith(AndroidJUnit4::class)
+class TvNavigationTest {
+    private val instrument = InstrumentationRegistry.getInstrumentation()
+    private class FakeBackend : PocketBackend {
+        val names = (1..297).map { "strategy-${it.toString().padStart(3, '0')}" }
+        val snapshot = TestSnapshot("persistent-test", "completed", 297, started = 1791072000,
+            results = listOf(ProbeResult(names[0], "OK", 1, 4, 1, 4, 1, 4), ProbeResult(names[10], "OK", 4, 4, 3, 4, 3, 4)))
+        @Volatile var calls = 0
+        override fun inspect() = ModuleInfo("v71", "running", names[10], names, true, bootEnabled = true)
+        override fun poll() = snapshot
+        override fun command(command: String, argument: String): String { calls++; return "ok" }
+        override fun launch(profile: String) = "started"
+        override fun log() = "Fake Pocket log\n".repeat(200)
+    }
+    private fun tagged(activity: Activity, tag: String): View = activity.window.decorView.findViewWithTag(tag)
+    private fun key(code: Int) { instrument.sendKeyDownUpSync(code); instrument.waitForIdleSync() }
+    private fun waitForIdle(app: PocketApplication) {
+        repeat(60) { if (app.busy.isEmpty() && app.connected) { instrument.waitForIdleSync(); return }; Thread.sleep(100) }
+        fail("Application did not connect: ${app.error}")
+    }
+    private fun screenshot(activity: Activity, name: String) {
+        val file = File(activity.getExternalFilesDir(null), "$name.png")
+        file.outputStream().use { instrument.uiAutomation.takeScreenshot().compress(Bitmap.CompressFormat.PNG, 100, it) }
+    }
+    @Test fun remoteNavigationAndHistorySurviveActivityRestart() {
+        val fake = FakeBackend()
+        PocketApplication.backendFactory = { fake }
+        val context = instrument.targetContext
+        val intent = Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        var activity = instrument.startActivitySync(intent)
+        val app = activity.application as PocketApplication
+        waitForIdle(app)
+
+        instrument.runOnMainSync { tagged(activity, "start").requestFocus() }
+        key(KeyEvent.KEYCODE_DPAD_DOWN)
+        instrument.runOnMainSync { assertEquals("stop", activity.currentFocus?.tag) }
+        key(KeyEvent.KEYCODE_DPAD_DOWN)
+        instrument.runOnMainSync { assertEquals("restart", activity.currentFocus?.tag) }
+        key(KeyEvent.KEYCODE_DPAD_CENTER)
+        waitForIdle(app)
+        assertEquals(1, fake.calls)
+        screenshot(activity, "01-home")
+
+        instrument.runOnMainSync { tagged(activity, "nav_1").requestFocus() }
+        key(KeyEvent.KEYCODE_DPAD_CENTER)
+        val list = tagged(activity, "strategy_list") as ListView
+        instrument.runOnMainSync { list.requestFocus(); list.setSelection(0) }
+        repeat(25) { key(KeyEvent.KEYCODE_DPAD_DOWN) }
+        instrument.runOnMainSync {
+            assertTrue("D-pad must advance selection", list.selectedItemPosition >= 20)
+            assertTrue("D-pad must scroll the list", list.firstVisiblePosition > 0)
+        }
+        key(KeyEvent.KEYCODE_DPAD_LEFT)
+        instrument.runOnMainSync { assertEquals("nav_1", activity.currentFocus?.tag) }
+
+        instrument.runOnMainSync { tagged(activity, "nav_2").requestFocus() }
+        key(KeyEvent.KEYCODE_DPAD_CENTER)
+        screenshot(activity, "02-results")
+        assertEquals("strategy-011", HistoryStore(context).load().ranked.first().name)
+        assertEquals(10, HistoryStore(context).load().ranked.first().ok)
+        instrument.runOnMainSync { activity.finish() }
+        instrument.waitForIdleSync()
+        activity = instrument.startActivitySync(intent)
+        waitForIdle(app)
+        assertEquals("strategy-011", app.snapshot.ranked.first().name)
+        assertEquals(297, app.module.strategies.size)
+
+        // Exercise autoscroll on the test screen as well as the catalog screen.
+        instrument.runOnMainSync { tagged(activity, "nav_2").requestFocus() }
+        key(KeyEvent.KEYCODE_DPAD_CENTER)
+        val results = tagged(activity, "strategy_list") as ListView
+        instrument.runOnMainSync { results.requestFocus(); results.setSelection(0) }
+        repeat(20) { key(KeyEvent.KEYCODE_DPAD_DOWN) }
+        instrument.runOnMainSync { assertTrue(results.firstVisiblePosition > 0) }
+        instrument.runOnMainSync { activity.finish() }
+    }
+}

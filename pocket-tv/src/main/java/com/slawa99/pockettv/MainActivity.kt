@@ -342,7 +342,9 @@ class MainActivity : Activity() {
     }
     private fun copyLog() {
         try {
-            (getSystemService(CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Pocket TV log", app.diagnosticText()))
+            val full = app.diagnosticText()
+            val text = if (full.length > 160000) full.take(2000) + "\n[Средняя часть журнала сокращена]\n" + full.takeLast(158000) else full
+            (getSystemService(CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Pocket TV log", text))
             Toast.makeText(this, "Журнал скопирован в буфер обмена", Toast.LENGTH_LONG).show()
         } catch (e: Exception) { Toast.makeText(this, "Копирование не удалось: ${e.message}", Toast.LENGTH_LONG).show() }
     }

@@ -40,13 +40,7 @@ jobs:
           profile: pixel_c
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: |
-            adb shell settings put system accelerometer_rotation 0
-            adb shell settings put system user_rotation 1
-            cd pocket-tv && ../gradlew connectedDebugAndroidTest
-      - name: Collect screenshots
-        if: always()
-        run: adb pull /sdcard/Android/data/com.slawa99.pockettv/files pocket-tv/screenshots || true
+          script: bash pocket-tv/tests/run_device_tests.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:

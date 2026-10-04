@@ -77,7 +77,11 @@ poll() {
     field ID "$(value "$SESSION/id")"
     state="$(value "$SESSION/state")"
     case "$state" in starting|running|restoring|cancelling)
-        if ! alive "$SESSION/owner"; then state=interrupted; fi ;;
+        if ! alive "$SESSION/owner"; then
+            # The runner can publish its terminal state and exit during alive().
+            state="$(value "$SESSION/state")"
+            case "$state" in starting|running|restoring|cancelling) state=interrupted ;; esac
+        fi ;;
     esac
     field STATE "$state"
     field TOTAL "$(value "$SESSION/total")"

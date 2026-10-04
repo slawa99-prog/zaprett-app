@@ -153,7 +153,26 @@ class MainActivity : Activity() {
         addControl(body, "youtube", "Открыть YouTube") { openVideo(false) }
         addControl(body, "smarttube", "Открыть SmartTube") { openVideo(true) }
         body.addView(label("Автозапуск выполняет сам модуль Pocket при загрузке приставки, если он включён в Magisk. Выбранная стратегия сохраняется в модуле.", 14, muted).apply { setPadding(0, dp(8), 0, dp(8)) })
+        wireVerticalButtons(body)
         scrolling(content, body)
+    }
+    private fun wireVerticalButtons(parent: LinearLayout) {
+        val buttons = (0 until parent.childCount).mapNotNull { parent.getChildAt(it) as? Button }
+        buttons.forEachIndexed { index, button ->
+            button.nextFocusLeftId = nav[page].id
+            button.setOnKeyListener { _, key, event ->
+                if (key != KeyEvent.KEYCODE_DPAD_DOWN && key != KeyEvent.KEYCODE_DPAD_UP) false
+                else {
+                    if (event.action == KeyEvent.ACTION_DOWN) {
+                        val step = if (key == KeyEvent.KEYCODE_DPAD_DOWN) 1 else -1
+                        var target = index + step
+                        while (target in buttons.indices && !buttons[target].isEnabled) target += step
+                        if (target in buttons.indices) buttons[target].requestFocus()
+                    }
+                    true
+                }
+            }
+        }
     }
     private fun buildStrategies(testPage: Boolean) {
         val body = vertical()

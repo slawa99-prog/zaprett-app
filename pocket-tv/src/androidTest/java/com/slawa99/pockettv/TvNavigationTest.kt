@@ -2,17 +2,15 @@ package com.slawa99.pockettv
 
 import android.app.Activity
 import android.content.Intent
-import android.graphics.Bitmap
+import android.os.ParcelFileDescriptor
 import android.view.KeyEvent
 import android.view.View
-import android.view.ViewGroup
 import android.widget.ListView
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
-import java.io.File
 
 @RunWith(AndroidJUnit4::class)
 class TvNavigationTest {
@@ -34,9 +32,20 @@ class TvNavigationTest {
         repeat(60) { if (app.busy.isEmpty() && app.connected) { instrument.waitForIdleSync(); return }; Thread.sleep(100) }
         fail("Application did not connect: ${app.error}")
     }
+    private fun waitForWindow(activity: Activity) {
+        repeat(60) {
+            var ready = false
+            instrument.runOnMainSync { ready = activity.hasWindowFocus() && activity.window.decorView.isLaidOut }
+            if (ready) { instrument.waitForIdleSync(); return }
+            Thread.sleep(100)
+        }
+        fail("Activity did not receive input focus")
+    }
     private fun screenshot(activity: Activity, name: String) {
-        val file = File(activity.getExternalFilesDir(null), "$name.png")
-        file.outputStream().use { instrument.uiAutomation.takeScreenshot().compress(Bitmap.CompressFormat.PNG, 100, it) }
+        waitForWindow(activity)
+        // Gradle uninstalls the target APK after instrumentation; app-private files disappear.
+        val command = "mkdir -p /sdcard/Download/pocket-tv-qa && screencap -p /sdcard/Download/pocket-tv-qa/$name.png"
+        ParcelFileDescriptor.AutoCloseInputStream(instrument.uiAutomation.executeShellCommand(command)).use { it.readBytes() }
     }
     @Test fun remoteNavigationAndHistorySurviveActivityRestart() {
         val fake = FakeBackend()
@@ -51,6 +60,7 @@ class TvNavigationTest {
 
         instrument.runOnMainSync { assertTrue("Start must accept focus", tagged(activity, "start").requestFocus()) }
         key(KeyEvent.KEYCODE_DPAD_DOWN)
+        screenshot(activity, "00-after-down")
         instrument.runOnMainSync { assertEquals("stop", activity.currentFocus?.tag) }
         key(KeyEvent.KEYCODE_DPAD_DOWN)
         instrument.runOnMainSync { assertEquals("restart", activity.currentFocus?.tag) }
@@ -80,6 +90,7 @@ class TvNavigationTest {
         instrument.waitForIdleSync()
         activity = instrument.startActivitySync(intent)
         waitForIdle(app)
+        waitForWindow(activity)
         assertEquals("strategy-011", app.snapshot.ranked.first().name)
         assertEquals(297, app.module.strategies.size)
 

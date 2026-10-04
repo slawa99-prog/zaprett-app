@@ -6,6 +6,6 @@ cd pocket-tv || exit 1
 result=0
 ../gradlew connectedDebugAndroidTest || result=$?
 mkdir -p screenshots
-adb pull /sdcard/Android/data/com.slawa99.pockettv/files/. screenshots/ || true
+adb pull /sdcard/Download/pocket-tv-qa/. screenshots/ || true
 adb logcat -d -s AndroidRuntime > screenshots/android-runtime.txt
 exit "$result"

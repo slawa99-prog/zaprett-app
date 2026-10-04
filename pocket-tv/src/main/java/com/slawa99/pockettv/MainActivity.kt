@@ -123,7 +123,7 @@ class MainActivity : Activity() {
     }
     private fun scrolling(parent: ViewGroup, inner: View): ScrollView = ScrollView(this).apply {
         isFillViewport = false; clipToPadding = false; setPadding(0, 0, dp(5), dp(4))
-        addView(inner, ScrollView.LayoutParams(-1, -2)); parent.addView(this, ViewGroup.LayoutParams(-1, -1))
+        addView(inner, FrameLayout.LayoutParams(-1, -2)); parent.addView(this, ViewGroup.LayoutParams(-1, -1))
     }
     private fun showPage(index: Int) {
         page = index.coerceIn(0, 4)
@@ -210,7 +210,7 @@ class MainActivity : Activity() {
         journal = label("", 13, muted).apply { typeface = Typeface.MONOSPACE; setPadding(dp(10), dp(10), dp(10), dp(10)); background = shape(card) }
         val scroll = ScrollView(this).apply {
             tag = "log_scroll"; isFocusable = true; isFocusableInTouchMode = true; background = focusBackground()
-            addView(journal, ScrollView.LayoutParams(-1, -2)); nextFocusLeftId = nav[page].id
+            addView(journal, FrameLayout.LayoutParams(-1, -2)); nextFocusLeftId = nav[page].id
         }
         body.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         content.addView(body, FrameLayout.LayoutParams(-1, -1))

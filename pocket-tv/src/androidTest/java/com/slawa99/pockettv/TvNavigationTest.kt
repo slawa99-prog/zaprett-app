@@ -6,6 +6,7 @@ import android.os.ParcelFileDescriptor
 import android.view.KeyEvent
 import android.view.View
 import android.widget.ListView
+import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.*
@@ -39,13 +40,17 @@ class TvNavigationTest {
             if (ready) { instrument.waitForIdleSync(); return }
             Thread.sleep(100)
         }
-        fail("Activity did not receive input focus")
+        shell("mkdir -p /sdcard/Download/pocket-tv-qa; screencap -p /sdcard/Download/pocket-tv-qa/window-failure.png; dumpsys window > /sdcard/Download/pocket-tv-qa/window.txt")
+        fail("Activity did not receive input focus; destroyed=${activity.isDestroyed}, finishing=${activity.isFinishing}, changing=${activity.isChangingConfigurations}")
+    }
+    private fun shell(command: String) {
+        ParcelFileDescriptor.AutoCloseInputStream(instrument.uiAutomation.executeShellCommand(command)).use { it.readBytes() }
     }
     private fun screenshot(activity: Activity, name: String) {
         waitForWindow(activity)
         // Gradle uninstalls the target APK after instrumentation; app-private files disappear.
         val command = "mkdir -p /sdcard/Download/pocket-tv-qa && screencap -p /sdcard/Download/pocket-tv-qa/$name.png"
-        ParcelFileDescriptor.AutoCloseInputStream(instrument.uiAutomation.executeShellCommand(command)).use { it.readBytes() }
+        shell(command)
     }
     @Test fun remoteNavigationAndHistorySurviveActivityRestart() {
         val fake = FakeBackend()
@@ -53,7 +58,9 @@ class TvNavigationTest {
         instrument.setInTouchMode(false)
         val context = instrument.targetContext
         val intent = Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        var activity = instrument.startActivitySync(intent)
+        var scenario = ActivityScenario.launch<MainActivity>(intent)
+        lateinit var activity: MainActivity
+        scenario.onActivity { activity = it }
         val app = activity.application as PocketApplication
         waitForIdle(app)
         screenshot(activity, "00-launch")
@@ -86,9 +93,9 @@ class TvNavigationTest {
         screenshot(activity, "02-results")
         assertEquals("strategy-011", HistoryStore(context).load().ranked.first().name)
         assertEquals(10, HistoryStore(context).load().ranked.first().ok)
-        instrument.runOnMainSync { activity.finish() }
-        instrument.waitForIdleSync()
-        activity = instrument.startActivitySync(intent)
+        scenario.close()
+        scenario = ActivityScenario.launch(intent)
+        scenario.onActivity { activity = it }
         waitForIdle(app)
         waitForWindow(activity)
         assertEquals("strategy-011", app.snapshot.ranked.first().name)
@@ -101,6 +108,6 @@ class TvNavigationTest {
         instrument.runOnMainSync { results.requestFocus(); results.setSelection(0) }
         repeat(20) { key(KeyEvent.KEYCODE_DPAD_DOWN) }
         instrument.runOnMainSync { assertTrue(results.firstVisiblePosition > 0) }
-        instrument.runOnMainSync { activity.finish() }
+        scenario.close()
     }
 }

@@ -113,7 +113,7 @@ class MainActivity : Activity() {
         id = View.generateViewId(); text = value; textSize = 15f; isAllCaps = false
         setTextColor(ColorStateList(arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf()), intArrayOf(Color.rgb(105, 126, 115), ink)))
         background = focusBackground(); minimumHeight = dp(46); minHeight = dp(46)
-        setPadding(dp(14), dp(8), dp(14), dp(8)); isFocusable = true
+        setPadding(dp(14), dp(8), dp(14), dp(8)); isFocusable = true; isFocusableInTouchMode = true
         setOnClickListener { action() }
     }
     private fun rowParams() = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) }

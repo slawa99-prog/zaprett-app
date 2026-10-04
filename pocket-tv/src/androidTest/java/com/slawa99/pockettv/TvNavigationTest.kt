@@ -41,13 +41,15 @@ class TvNavigationTest {
     @Test fun remoteNavigationAndHistorySurviveActivityRestart() {
         val fake = FakeBackend()
         PocketApplication.backendFactory = { fake }
+        instrument.setInTouchMode(false)
         val context = instrument.targetContext
         val intent = Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         var activity = instrument.startActivitySync(intent)
         val app = activity.application as PocketApplication
         waitForIdle(app)
+        screenshot(activity, "00-launch")
 
-        instrument.runOnMainSync { tagged(activity, "start").requestFocus() }
+        instrument.runOnMainSync { assertTrue("Start must accept focus", tagged(activity, "start").requestFocus()) }
         key(KeyEvent.KEYCODE_DPAD_DOWN)
         instrument.runOnMainSync { assertEquals("stop", activity.currentFocus?.tag) }
         key(KeyEvent.KEYCODE_DPAD_DOWN)

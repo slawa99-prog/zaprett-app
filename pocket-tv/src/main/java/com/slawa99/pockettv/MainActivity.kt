@@ -204,7 +204,12 @@ class MainActivity : Activity() {
             id = View.generateViewId(); tag = "strategy_list"
             divider = null; dividerHeight = dp(8); isFocusable = true
             setPadding(dp(3), dp(3), dp(3), dp(3)); clipToPadding = false
-            selector = shape(Color.TRANSPARENT, mint); setDrawSelectorOnTop(true)
+            selector = StateListDrawable().apply {
+                addState(intArrayOf(android.R.attr.state_focused), shape(Color.TRANSPARENT, mint))
+                addState(intArrayOf(android.R.attr.state_pressed), shape(Color.TRANSPARENT, mint))
+                addState(intArrayOf(), shape(Color.TRANSPARENT))
+            }
+            setDrawSelectorOnTop(true)
             nextFocusLeftId = nav[page].id
         }
         adapter = StrategyAdapter()

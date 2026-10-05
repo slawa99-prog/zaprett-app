@@ -54,11 +54,6 @@ jobs:
           java-version: '21'
           cache: gradle
       - uses: android-actions/setup-android@v4
-      - name: Preserve test signing key for subsequent builds
-        uses: actions/cache@v4
-        with:
-          path: ~/.android/debug.keystore
-          key: pocket-tv-debug-signing-v1
       - name: Verify root bridge lifecycle
         run: sudo python3 pocket-tv/tests/test_bridge.py
       - name: Unit tests and APK

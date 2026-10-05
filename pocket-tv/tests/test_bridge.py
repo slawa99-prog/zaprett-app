@@ -167,6 +167,7 @@ class BridgeTest(unittest.TestCase):
         self.assertIn('@@STATE completed', out)
         self.assertEqual('running', (self.mod / 'state').read_text().strip())
         self.assertIn('missing dependency', self.call('log').stdout)
+        self.assertIn('curl 8.22.0', subprocess.check_output([str(self.base / 'data/runtime/curl'), '--version'], text=True))
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

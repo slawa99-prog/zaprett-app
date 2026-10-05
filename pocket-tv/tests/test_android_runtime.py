@@ -157,6 +157,7 @@ esac
     assert failed.returncode != 0, failed.stdout
     assert '@@ID android-runtime-verified' in bridge('poll').stdout
     assert shell('cat', DEVICE + '/module/calls').stdout == old_calls
+    assert 'curl 8.22.0' in shell(DEVICE + '/data/runtime/curl', '--version').stdout
     note('Failed preflight preserves prior session and does not stop the service')
     server.shutdown()
     run('adb', 'reverse', '--remove', f'tcp:{port}')

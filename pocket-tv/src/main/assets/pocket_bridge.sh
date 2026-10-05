@@ -73,13 +73,13 @@ prepare_curl() {
         fail 'Встроенный curl или сертификаты недоступны. Обновите APK Pocket TV.'
     mkdir -p "$RUNTIME" || fail 'Не удалось подготовить curl.'
     cp "$POCKET_TV_CURL_SOURCE" "$RUNTIME/curl.bin.tmp" &&
-        chmod 700 "$RUNTIME/curl.bin.tmp" &&
-        mv "$RUNTIME/curl.bin.tmp" "$RUNTIME/curl.bin" || fail 'Не удалось установить встроенный curl.'
-    cp "$POCKET_TV_CA_SOURCE" "$RUNTIME/ca-bundle.pem.tmp" &&
-        mv "$RUNTIME/ca-bundle.pem.tmp" "$RUNTIME/ca-bundle.pem" || fail 'Не удалось подготовить сертификаты HTTPS.'
-    if ! "$RUNTIME/curl.bin" --version >> "$BASE/preflight.log" 2>&1; then
+        chmod 700 "$RUNTIME/curl.bin.tmp" || fail 'Не удалось подготовить встроенный curl.'
+    if ! "$RUNTIME/curl.bin.tmp" --version >> "$BASE/preflight.log" 2>&1; then
         fail 'Встроенный curl не запускается на этой приставке. Причина записана в журнале; сервис и прошлый рейтинг сохранены.'
     fi
+    mv "$RUNTIME/curl.bin.tmp" "$RUNTIME/curl.bin" || fail 'Не удалось установить встроенный curl.'
+    cp "$POCKET_TV_CA_SOURCE" "$RUNTIME/ca-bundle.pem.tmp" &&
+        mv "$RUNTIME/ca-bundle.pem.tmp" "$RUNTIME/ca-bundle.pem" || fail 'Не удалось подготовить сертификаты HTTPS.'
     {
         printf '#!%s\n' "$SHELL_BIN"
         cat <<'CURL_WRAPPER'

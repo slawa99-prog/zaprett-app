@@ -6,3 +6,5 @@
 Использует sysfs и запасной native SIOCETHTOOL ioctl. Это не Speedtest.
 
 CI: Android APK build enabled.
+
+CI retry: explicit Android SDK path.

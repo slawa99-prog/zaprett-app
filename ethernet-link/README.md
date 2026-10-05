@@ -8,3 +8,5 @@
 CI: Android APK build enabled.
 
 CI retry: explicit Android SDK path.
+
+CI retry: manual Android SDK install.

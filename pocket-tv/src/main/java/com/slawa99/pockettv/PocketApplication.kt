@@ -41,7 +41,12 @@ class PocketApplication : Application() {
         main.post { this.module = module; connected = true; accept(state) }
     }
     private fun persist(s: TestSnapshot) { if (s.id.isNotEmpty()) history.save(s) }
-    private fun accept(s: TestSnapshot) { if (s.id.isNotEmpty()) snapshot = s }
+    private fun accept(s: TestSnapshot) {
+        if (s.id.isNotEmpty()) {
+            snapshot = s
+            if (!s.active) notice = s.headline()
+        }
+    }
     fun control(command: String, argument: String = "") = operation(when (command) {
         "apply" -> "Включение $argument и перезапуск сервиса…"
         "start" -> "Запуск сервиса Pocket…"
@@ -64,7 +69,10 @@ class PocketApplication : Application() {
         val output = backend.launch(profile)
         val state = backend.poll()
         persist(state)
-        main.post { appendLog(output); accept(state); notice = "Подбор продолжится и при закрытии приложения." }
+        main.post {
+            appendLog(output); accept(state)
+            notice = if (state.active) "Подбор продолжится и при закрытии приложения." else state.headline()
+        }
     }
     fun readLog() = operation("Чтение журнала…") {
         val text = backend.log()
@@ -100,7 +108,7 @@ class PocketApplication : Application() {
             finally { main.post { busy = ""; notifyChanged() } }
         }
     }
-    fun diagnosticText(): String = "Pocket TV 1.0-test1\nPocket ${module.version}\nСервис: ${module.service}\nСтратегия: ${module.selected}\nСессия: ${snapshot.id}\n${snapshot.headline()}\n${snapshot.completed}/${snapshot.total}\n\n$error\n\n$operationLog\n\n${fullLog.ifEmpty { snapshot.tail }}"
+    fun diagnosticText(): String = "Pocket TV 1.0-test2\nPocket ${module.version}\nСервис: ${module.service}\nСтратегия: ${module.selected}\nСессия: ${snapshot.id}\n${snapshot.headline()}\n${snapshot.completed}/${snapshot.total}\n\n$error\n\n$operationLog\n\n${fullLog.ifEmpty { snapshot.tail }}"
     fun serviceLabel(status: String) = when (status) {
         "running" -> "работает"
         "stopped" -> "остановлен"

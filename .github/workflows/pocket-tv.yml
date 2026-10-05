@@ -6,11 +6,48 @@ on:
 permissions:
   contents: read
 jobs:
+  curl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        abi: [arm64-v8a, armeabi-v7a, x86_64, x86]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        id: native-cache
+        with:
+          path: |
+            pocket-tv/src/main/jniLibs/${{ matrix.abi }}
+            pocket-tv/src/main/assets/licenses
+            pocket-tv/build/reports/native
+          key: pocket-curl-${{ matrix.abi }}-${{ hashFiles('pocket-tv/scripts/build-curl.sh') }}
+      - uses: android-actions/setup-android@v4
+        if: steps.native-cache.outputs.cache-hit != 'true'
+      - name: Build self-contained Android curl
+        if: steps.native-cache.outputs.cache-hit != 'true'
+        run: |
+          sdkmanager 'ndk;27.2.12479018'
+          bash pocket-tv/scripts/build-curl.sh '${{ matrix.abi }}'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pocket-curl-${{ matrix.abi }}
+          path: |
+            pocket-tv/src/main/jniLibs/${{ matrix.abi }}
+            pocket-tv/src/main/assets/licenses
+          if-no-files-found: error
   build:
+    needs: curl
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: pocket-curl-*
+          path: pocket-tv/src/main
+          merge-multiple: true
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -40,11 +77,13 @@ jobs:
           profile: pixel_c
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: bash pocket-tv/tests/run_device_tests.sh
+          script: |
+            python3 pocket-tv/tests/test_android_runtime.py
+            bash pocket-tv/tests/run_device_tests.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: pocket-tv-test1
+          name: pocket-tv-test2
           path: |
             pocket-tv/build/outputs/apk/debug/*.apk
             pocket-tv/build/reports/

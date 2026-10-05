@@ -31,13 +31,17 @@ class RootBackend(private val context: Context) : PocketBackend {
     }
     override fun launch(profile: String): String {
         require(profile in setOf("youtube", "all"))
-        return run("launch-test", profile, UUID.randomUUID().toString(), timeout = 45)
+        return run("launch-test", profile, UUID.randomUUID().toString(), timeout = 45, native = NativeRuntime.prepare(context))
     }
     override fun log(): String = run("log", timeout = 30)
 
-    private fun run(vararg args: String, timeout: Long): String {
+    private fun run(vararg args: String, timeout: Long, native: NativeInputs? = null): String {
         check(android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) { "Root operation on UI thread" }
-        val cmd = "sh ${PocketProtocol.shellQuote(bridge.absolutePath)} " + args.joinToString(" ") { PocketProtocol.shellQuote(it) }
+        val environment = native?.let {
+            "POCKET_TV_CURL_SOURCE=${PocketProtocol.shellQuote(it.curl.absolutePath)} " +
+                "POCKET_TV_CA_SOURCE=${PocketProtocol.shellQuote(it.certificates.absolutePath)} "
+        }.orEmpty()
+        val cmd = environment + "sh ${PocketProtocol.shellQuote(bridge.absolutePath)} " + args.joinToString(" ") { PocketProtocol.shellQuote(it) }
         val process = try { ProcessBuilder("su", "-c", cmd).redirectErrorStream(true).start() }
         catch (e: Exception) { throw IllegalStateException("Не удалось вызвать su. Нужен Magisk и разрешение root для Pocket TV. ${e.message}", e) }
         val output = ByteArrayOutputStream()

@@ -59,7 +59,7 @@ class MainActivity : Activity() {
         }
         val rail = vertical().apply { setPadding(0, 0, dp(18), 0) }
         rail.addView(label("POCKET", 25, mint, true))
-        rail.addView(label("TV · 1.0 test1", 13, muted).apply { setPadding(0, 0, 0, dp(20)) })
+        rail.addView(label("TV · 1.0 test2", 13, muted).apply { setPadding(0, 0, 0, dp(20)) })
         listOf("Главная", "Стратегии", "Подбор", "Журнал", "О приложении").forEachIndexed { index, name ->
             val button = button(name) { showPage(index) }.apply {
                 tag = "nav_$index"; gravity = Gravity.CENTER_VERTICAL or Gravity.START

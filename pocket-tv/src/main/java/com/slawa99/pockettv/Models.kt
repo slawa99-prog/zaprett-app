@@ -23,7 +23,7 @@ data class TestSnapshot(
     val id: String = "", val status: String = "idle", val total: Int = 0,
     val current: String = "", val started: Long = 0, val profile: String = "youtube",
     val results: List<ProbeResult> = emptyList(), val tail: String = "", val exitCode: String = "",
-    val restore: String = ""
+    val restore: String = "", val failure: String = ""
 ) {
     val active get() = status in setOf("starting", "running", "restoring", "cancelling")
     val completed get() = results.size
@@ -37,7 +37,10 @@ data class TestSnapshot(
         "completed" -> "Подбор завершён. Выберите стратегию из результатов"
         "cancelled" -> "Подбор остановлен. Готовые результаты сохранены"
         "interrupted" -> "Подбор прерван перезагрузкой или остановкой процесса"
-        "failed" -> "Подбор завершился с ошибкой. Откройте журнал"
+        "failed" -> "Подбор остановлен: " + failure.ifEmpty {
+            if (tail.contains("curl not found or not functional")) "Pocket не смог запустить curl. Обновите Pocket TV и повторите подбор"
+            else "ошибка тестера Pocket. Откройте журнал"
+        }
         else -> "Подбор ещё не запускался"
     }
 }
@@ -70,7 +73,7 @@ object PocketProtocol {
         return TestSnapshot(field("ID"), field("STATE").ifEmpty { "idle" }, total,
             field("TESTING"), field("STARTED").toLongOrNull() ?: 0, field("PROFILE").ifEmpty { "youtube" },
             results.values.toList(), output.substringAfter("@@LOGTAIL\n", "").replace(ansi, "").takeLast(16000),
-            field("EXIT"), field("RESTORE"))
+            field("EXIT"), field("RESTORE"), field("ERROR").take(220))
     }
     fun shellQuote(value: String): String = "'" + value.replace("'", "'\\''") + "'"
 }

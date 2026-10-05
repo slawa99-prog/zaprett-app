@@ -59,4 +59,12 @@ class PocketProtocolTest {
         assertFalse(PocketProtocol.safeName("bad\nname"))
         assertFalse(PocketProtocol.safeName("../strategy"))
     }
+    @Test fun failureShowsCauseInsteadOfWaitingOrContinuation() {
+        val s = PocketProtocol.test("@@STATE failed\n@@ERROR Не удалось запустить curl\n@@LOGTAIL\nraw log")
+        assertFalse(s.active)
+        assertEquals("Подбор остановлен: Не удалось запустить curl", s.headline())
+        val old = TestSnapshot(status = "failed", tail = "! curl not found or not functional (checked: module/curl)")
+        assertTrue(old.headline().contains("curl"))
+        assertFalse(old.headline().contains("продолжится"))
+    }
 }

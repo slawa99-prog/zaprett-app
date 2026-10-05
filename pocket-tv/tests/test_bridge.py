@@ -16,6 +16,9 @@ case "$1" in
  stop) echo stopped > "$mod/state" ;;
  strategy) IFS= read -r name; printf '%s\n' "$name" > "$mod/config/current-strategy" ;;
  test)
+   MODPATH="$mod"; . "$mod/common.sh"
+   downloader="$(resolve_downloader)" || { echo '! curl not found or not functional'; exit 1; }
+   echo "Using curl: $downloader"
    [ "${FAKE_STUBBORN:-0}" != 1 ] || trap '' TERM
    while IFS= read -r name; do
      printf '@@TESTING %s\n' "$name"
@@ -25,6 +28,15 @@ case "$1" in
    exit "${FAKE_TEST_EXIT:-0}"
    ;;
 esac
+'''
+COMMON = r'''resolve_downloader() {
+ for candidate in "$MODPATH/curl" "$(command -v curl)"; do
+  [ -x "$candidate" ] || continue
+  "$candidate" --version >/dev/null 2>&1 || continue
+  printf '%s\n' "$candidate"; return 0
+ done
+ return 1
+}
 '''
 
 class BridgeTest(unittest.TestCase):
@@ -36,12 +48,18 @@ class BridgeTest(unittest.TestCase):
             (self.mod / directory).mkdir(parents=True)
         (self.mod / 'module.prop').write_text('id=zapret\nauthor=sevcator\nversion=v71\n')
         (self.mod / 'system/bin/zapret').write_text(FAKE)
+        (self.mod / 'common.sh').write_text(COMMON)
+        native = self.base / 'curl-native'
+        native.write_text('#!/bin/sh\necho "curl 8.22.0 Android OpenSSL/3.5.8"\necho "Protocols: http https"\n')
+        native.chmod(0o700)
+        certificates = self.base / 'ca.pem'
+        certificates.write_text('test certificate fixture\n')
         (self.mod / 'state').write_text('running\n')
         (self.mod / 'config/current-strategy').write_text('general\n')
         self.names = ['general', "name's special $thing"]
         for name in self.names:
             (self.mod / 'strategy' / (name + '.sh')).write_text('# strategy\n')
-        self.env = dict(os.environ, POCKET_TV_MODULE=str(self.mod), POCKET_TV_BASE=str(self.base / 'data'), POCKET_TV_SHELL='/bin/sh')
+        self.env = dict(os.environ, POCKET_TV_MODULE=str(self.mod), POCKET_TV_BASE=str(self.base / 'data'), POCKET_TV_SHELL='/bin/sh', POCKET_TV_CURL_SOURCE=str(native), POCKET_TV_CA_SOURCE=str(certificates))
 
     def tearDown(self):
         # A failed assertion must not leak the detached runner.
@@ -122,6 +140,33 @@ class BridgeTest(unittest.TestCase):
         (self.mod / 'module.prop').write_text('author=someone_else\n')
         self.assertNotEqual(0, self.call('start', check=False).returncode)
         self.assertFalse((self.mod / 'calls').exists())
+
+    def test_missing_termux_library_uses_bundled_runtime(self):
+        broken = self.mod / 'curl'
+        broken.write_text('#!/bin/sh\necho \'CANNOT LINK EXECUTABLE curl: library "libcurl.so" not found\' >&2\nexit 127\n')
+        broken.chmod(0o700)
+        self.call('launch-test', 'youtube', 'fallback')
+        self.assertIn('@@STATE completed', self.done())
+        log = self.call('log').stdout
+        self.assertIn('libcurl.so', log)
+        self.assertIn('Using curl: ' + str(self.base / 'data/runtime/curl'), log)
+        self.assertEqual('running', (self.mod / 'state').read_text().strip())
+
+    def test_preflight_failure_preserves_previous_results_and_service(self):
+        self.call('launch-test', 'youtube', 'previous')
+        self.assertIn('@@STATE completed', self.done())
+        calls = (self.mod / 'calls').read_text()
+        native = pathlib.Path(self.env['POCKET_TV_CURL_SOURCE'])
+        native.write_text('#!/bin/sh\necho "CANNOT LINK: missing dependency" >&2\nexit 127\n')
+        result = self.call('launch-test', 'youtube', 'must-not-replace', check=False)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('сервис и прошлый рейтинг сохранены', result.stderr)
+        self.assertEqual(calls, (self.mod / 'calls').read_text())
+        out = self.call('poll').stdout
+        self.assertIn('@@ID previous', out)
+        self.assertIn('@@STATE completed', out)
+        self.assertEqual('running', (self.mod / 'state').read_text().strip())
+        self.assertIn('missing dependency', self.call('log').stdout)
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

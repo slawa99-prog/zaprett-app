@@ -18,13 +18,16 @@ class TvNavigationTest {
     private val instrument = InstrumentationRegistry.getInstrumentation()
     private class FakeBackend : PocketBackend {
         val names = (1..297).map { "strategy-${it.toString().padStart(3, '0')}" }
-        val snapshot = TestSnapshot("persistent-test", "completed", 297, started = 1791072000,
+        var snapshot = TestSnapshot("persistent-test", "completed", 297, started = 1791072000,
             results = listOf(ProbeResult(names[0], "OK", 1, 4, 1, 4, 1, 4), ProbeResult(names[10], "OK", 4, 4, 3, 4, 3, 4)))
         @Volatile var calls = 0
         override fun inspect() = ModuleInfo("v71", "running", names[10], names, true, bootEnabled = true)
         override fun poll() = snapshot
         override fun command(command: String, argument: String): String { calls++; return "ok" }
-        override fun launch(profile: String) = "started"
+        override fun launch(profile: String): String {
+            snapshot = TestSnapshot("failed-test", "failed", 297, failure = "Не удалось запустить curl")
+            return "started"
+        }
         override fun log() = "Fake Pocket log\n".repeat(200)
     }
     private fun tagged(activity: Activity, tag: String): View = activity.window.decorView.findViewWithTag(tag)
@@ -109,6 +112,11 @@ class TvNavigationTest {
         instrument.runOnMainSync { results.requestFocus(); results.setSelection(0) }
         repeat(20) { key(KeyEvent.KEYCODE_DPAD_DOWN) }
         instrument.runOnMainSync { assertTrue(results.firstVisiblePosition > 0) }
+        instrument.runOnMainSync { app.launch("youtube") }
+        waitForIdle(app)
+        assertFalse(app.notice.contains("продолжится"))
+        assertTrue(app.notice.contains("Не удалось запустить curl"))
+        screenshot(activity, "03-failed-test")
         scenario.close()
     }
 }

@@ -7,6 +7,8 @@ CLI="$MOD/system/bin/zapret"
 SESSION="$BASE/session"
 LOCK="$BASE/action.lock"
 SHELL_BIN="${POCKET_TV_SHELL:-/system/bin/sh}"
+RUNTIME="$BASE/runtime"
+[ ! -x "$RUNTIME/curl" ] || export PATH="$RUNTIME:$PATH"
 
 fail() { printf '%s\n' "$*" >&2; exit 1; }
 field() { printf '@@%s %s\n' "$1" "$2"; }
@@ -61,6 +63,42 @@ catalog() {
         printf '%s\n' "$name"
     done | sort
 }
+prepare_curl() {
+    # Pocket v71 bundles a Termux curl executable without its shared libraries.
+    # Install our ABI-matched Android executable into our own directory, leaving
+    # the module intact. Its resolver can discover the working fallback via PATH.
+    printf 'Pocket TV: проверка curl перед запуском\n' > "$BASE/preflight.log"
+    [ -f "$MOD/common.sh" ] || fail 'Не найден common.sh модуля Pocket. Переустановите модуль.'
+    [ -f "${POCKET_TV_CURL_SOURCE:-}" ] && [ -s "${POCKET_TV_CA_SOURCE:-}" ] ||
+        fail 'Встроенный curl или сертификаты недоступны. Обновите APK Pocket TV.'
+    mkdir -p "$RUNTIME" || fail 'Не удалось подготовить curl.'
+    cp "$POCKET_TV_CURL_SOURCE" "$RUNTIME/curl.bin.tmp" &&
+        chmod 700 "$RUNTIME/curl.bin.tmp" &&
+        mv "$RUNTIME/curl.bin.tmp" "$RUNTIME/curl.bin" || fail 'Не удалось установить встроенный curl.'
+    cp "$POCKET_TV_CA_SOURCE" "$RUNTIME/ca-bundle.pem.tmp" &&
+        mv "$RUNTIME/ca-bundle.pem.tmp" "$RUNTIME/ca-bundle.pem" || fail 'Не удалось подготовить сертификаты HTTPS.'
+    if ! "$RUNTIME/curl.bin" --version >> "$BASE/preflight.log" 2>&1; then
+        fail 'Встроенный curl не запускается на этой приставке. Причина записана в журнале; сервис и прошлый рейтинг сохранены.'
+    fi
+    {
+        printf '#!%s\n' "$SHELL_BIN"
+        cat <<'CURL_WRAPPER'
+runtime_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)" || exit 1
+exec "$runtime_dir/curl.bin" --disable --cacert "$runtime_dir/ca-bundle.pem" "$@"
+CURL_WRAPPER
+    } > "$RUNTIME/curl.tmp"
+    chmod 700 "$RUNTIME/curl.tmp" && mv "$RUNTIME/curl.tmp" "$RUNTIME/curl" || fail 'Не удалось подготовить команду curl.'
+    export PATH="$RUNTIME:$PATH"
+    if [ -f "$MOD/curl" ]; then
+        printf '\nCurl модуля Pocket:\n' >> "$BASE/preflight.log"
+        "$MOD/curl" --version >> "$BASE/preflight.log" 2>&1 || true
+    fi
+    resolved="$("$SHELL_BIN" -c 'MODPATH="$1"; . "$MODPATH/common.sh"; resolve_downloader' pocket-preflight "$MOD" 2>> "$BASE/preflight.log")"
+    if [ -z "$resolved" ] || ! "$resolved" --version >> "$BASE/preflight.log" 2>&1; then
+        fail 'Pocket не смог выбрать рабочий curl. Откройте журнал. Сервис и прошлый рейтинг сохранены.'
+    fi
+    printf '\nPocket TV: curl готов: %s\n' "$resolved" >> "$BASE/preflight.log"
+}
 inspect() {
     require_module
     # status also performs Pocket's own layout migration from older releases.
@@ -89,6 +127,7 @@ poll() {
     field PROFILE "$(value "$SESSION/profile")"
     field EXIT "$(value "$SESSION/exit")"
     field RESTORE "$(value "$SESSION/restore")"
+    field ERROR "$(value "$SESSION/error")"
     grep -E '^@@(RESULT|TESTING) ' "$SESSION/test.log" 2>/dev/null || true
     printf '@@LOGTAIL\n'
     tail -n 35 "$SESSION/test.log" 2>/dev/null
@@ -105,6 +144,7 @@ launch_test() {
     case "$2" in ''|*[!a-zA-Z0-9-]*) fail 'Некорректный идентификатор проверки.' ;; esac
     names="$(catalog)"
     [ -n "$names" ] || fail 'Каталог Pocket пуст. Переустановите модуль и перезагрузите приставку.'
+    prepare_curl
     # Keep one recoverable session; the Android app also stores the last snapshot atomically.
     rm -rf "$SESSION.previous"
     [ ! -d "$SESSION" ] || mv "$SESSION" "$SESSION.previous"
@@ -121,10 +161,12 @@ launch_test() {
     runner=$!
     identity "$runner" > "$SESSION/owner"
     sleep 1
-    alive "$SESSION/owner" || [ "$(value "$SESSION/state")" = completed ] || {
-        cat "$SESSION/runner.log" >&2
-        fail 'Фоновый процесс не запустился. Откройте журнал.'
-    }
+    if ! alive "$SESSION/owner"; then
+        case "$(value "$SESSION/state")" in
+            completed|failed|cancelled) ;; # A fast terminal state is a real result.
+            *) cat "$SESSION/runner.log" >&2; fail 'Фоновый процесс не запустился. Откройте журнал.' ;;
+        esac
+    fi
     field ID "$2"
 }
 stop_test_child() {
@@ -146,6 +188,7 @@ run_test() {
     before="$("$SHELL_BIN" "$CLI" status 2>/dev/null | tail -n 1)"
     printf '%s\n' "$before" > "$SESSION/before"
     printf 'Pocket TV: подготовка. Предыдущее состояние: %s\n' "$before" > "$SESSION/test.log"
+    cat "$BASE/preflight.log" >> "$SESSION/test.log" 2>/dev/null
     # Own restoration here, so cancellation uses the same cleanup path as completion.
     "$SHELL_BIN" "$CLI" stop >> "$SESSION/test.log" 2>&1
     result=1
@@ -180,7 +223,14 @@ run_test() {
     printf '%s\n' "$result" > "$SESSION/exit"
     if [ -f "$SESSION/cancel" ]; then write_state cancelled
     elif [ "$result" -eq 0 ] && grep -q '^@@RESULT ' "$SESSION/test.log"; then write_state completed
-    else write_state failed; fi
+    else
+        if grep -q 'curl not found or not functional' "$SESSION/test.log"; then
+            printf 'Не удалось запустить curl для сетевых проверок.\n' > "$SESSION/error"
+        else
+            printf 'Тестер Pocket завершился с кодом %s. Подробности в журнале.\n' "$result" > "$SESSION/error"
+        fi
+        write_state failed
+    fi
 }
 
 [ "$(id -u)" = 0 ] || fail 'Нет root-доступа. Разрешите Pocket TV права суперпользователя в Magisk.'
@@ -188,6 +238,8 @@ case "${1:-}" in
     inspect) inspect ;;
     poll) poll ;;
     log)
+        printf '\n=== preflight.log ===\n'
+        tail -n 80 "$BASE/preflight.log" 2>/dev/null
         for file in test.log recovery.log runner.log; do
             printf '\n=== %s ===\n' "$file"
             tail -n 4000 "$SESSION/$file" 2>/dev/null

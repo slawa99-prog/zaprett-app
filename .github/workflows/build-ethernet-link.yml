@@ -13,8 +13,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
-      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /tmp/android-sdk
+      ANDROID_HOME: /tmp/android-sdk
     steps:
       - uses: actions/checkout@v4
 
@@ -27,11 +27,14 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Install Android SDK components
+      - name: Install Android command line tools
         run: |
-          SDKMANAGER=/usr/local/lib/android/sdk/cmdline-tools/16.0/bin/sdkmanager
-          yes | "$SDKMANAGER" --licenses >/dev/null || true
-          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
+          mkdir -p /tmp/android-sdk/cmdline-tools
+          curl -L --retry 3 -o /tmp/cmdline-tools.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+          unzip -q /tmp/cmdline-tools.zip -d /tmp/android-sdk/cmdline-tools
+          mv /tmp/android-sdk/cmdline-tools/cmdline-tools /tmp/android-sdk/cmdline-tools/latest
+          yes | /tmp/android-sdk/cmdline-tools/latest/bin/sdkmanager --licenses >/dev/null || true
+          /tmp/android-sdk/cmdline-tools/latest/bin/sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
 
       - name: Build debug APK
         working-directory: ethernet-link

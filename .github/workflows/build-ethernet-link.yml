@@ -1,0 +1,44 @@
+name: Build Ethernet Link APK
+
+on:
+  push:
+    branches:
+      - ethernet-link-build
+    paths:
+      - 'ethernet-link/**'
+      - '.github/workflows/build-ethernet-link.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Install Android SDK components
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
+
+      - name: Build debug APK
+        working-directory: ethernet-link
+        run: gradle :app:assembleDebug --stacktrace
+
+      - name: Rename APK
+        run: cp ethernet-link/app/build/outputs/apk/debug/app-debug.apk EthernetLink-debug.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: EthernetLink-APK
+          path: EthernetLink-debug.apk

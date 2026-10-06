@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Exact IDs from Linux v6.12; keep in sync with UsbAdapterCatalog. -->
+<resources>
+    <usb-device vendor-id="3034" product-id="32848" />
+    <usb-device vendor-id="3034" product-id="32851" />
+    <usb-device vendor-id="3034" product-id="33106" />
+    <usb-device vendor-id="3034" product-id="33107" />
+    <usb-device vendor-id="3034" product-id="33109" />
+    <usb-device vendor-id="3034" product-id="33110" />
+    <usb-device vendor-id="1118" product-id="1963" />
+    <usb-device vendor-id="1118" product-id="1990" />
+    <usb-device vendor-id="1118" product-id="2343" />
+    <usb-device vendor-id="1118" product-id="3166" />
+    <usb-device vendor-id="1256" product-id="41217" />
+    <usb-device vendor-id="6127" product-id="12367" />
+    <usb-device vendor-id="6127" product-id="12372" />
+    <usb-device vendor-id="6127" product-id="12386" />
+    <usb-device vendor-id="6127" product-id="12393" />
+    <usb-device vendor-id="6127" product-id="12418" />
+    <usb-device vendor-id="6127" product-id="12440" />
+    <usb-device vendor-id="6127" product-id="29189" />
+    <usb-device vendor-id="6127" product-id="29196" />
+    <usb-device vendor-id="6127" product-id="29204" />
+    <usb-device vendor-id="6127" product-id="29214" />
+    <usb-device vendor-id="6127" product-id="41863" />
+    <usb-device vendor-id="5041" product-id="65" />
+    <usb-device vendor-id="2389" product-id="2559" />
+    <usb-device vendor-id="9047" product-id="1537" />
+    <usb-device vendor-id="8193" product-id="45825" />
+    <usb-device vendor-id="2821" product-id="6518" />
+    <usb-device vendor-id="2965" product-id="6032" class="255" subclass="255" protocol="0" />
+    <usb-device vendor-id="2965" product-id="6026" class="255" subclass="255" protocol="0" />
+    <usb-device vendor-id="1204" product-id="13840" class="255" subclass="255" protocol="0" />
+    <usb-device vendor-id="8193" product-id="18944" class="255" subclass="255" protocol="0" />
+    <usb-device vendor-id="3574" product-id="114" class="255" subclass="255" protocol="0" />
+    <usb-device vendor-id="1256" product-id="41216" class="255" subclass="255" protocol="0" />
+    <usb-device vendor-id="6127" product-id="12363" class="255" subclass="255" protocol="0" />
+    <usb-device vendor-id="1293" product-id="296" class="255" subclass="255" protocol="0" />
+    <usb-device vendor-id="2352" product-id="2579" class="255" subclass="255" protocol="0" />
+    <usb-device vendor-id="1809" product-id="377" class="255" subclass="255" protocol="0" />
+    <usb-device vendor-id="1993" product-id="14" class="255" subclass="255" protocol="0" />
+    <usb-device vendor-id="1993" product-id="15" class="255" subclass="255" protocol="0" />
+    <usb-device vendor-id="1993" product-id="16" class="255" subclass="255" protocol="0" />
+</resources>

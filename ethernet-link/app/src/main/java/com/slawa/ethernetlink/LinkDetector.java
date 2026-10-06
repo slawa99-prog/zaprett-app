@@ -20,17 +20,17 @@ import java.util.*;
 final class LinkDetector {
     private final Context context;
     private final ConnectivityManager cm;
-    private final Rtl8153Usb usb;
+    private final UsbLink usb;
     LinkDetector(Context context) {
         this.context = context.getApplicationContext();
         cm = (ConnectivityManager)context.getSystemService(Context.CONNECTIVITY_SERVICE);
-        usb = new Rtl8153Usb(context);
+        usb = new UsbLink(context);
     }
     static final class Result {
         String iface, method = "—", duplex = "—", estimate = "Нет данных Android", report = "";
         int speed = -1, link = LinkDecision.UNKNOWN;
         boolean found, conflict, denied, usbAvailable, usbPermissionNeeded, usbDirect;
-        String usbMessage = "";
+        String usbMessage = "",adapter="";
     }
     private static final class Net {
         final Network network;
@@ -38,7 +38,7 @@ final class LinkDetector {
         Net(Network n, NetworkCapabilities c) { network = n; caps = c; }
     }
     Result detect() {
-        StringBuilder log = new StringBuilder("Ethernet Link 2.0-test2\n");
+        StringBuilder log = new StringBuilder("Ethernet Link "+BuildConfig.VERSION_NAME+"\n");
         log.append(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.US).format(new Date())).append('\n');
         log.append("Device: ").append(Build.MANUFACTURER).append(' ').append(Build.MODEL)
            .append("; Android ").append(Build.VERSION.RELEASE).append("; API ").append(Build.VERSION.SDK_INT)
@@ -68,12 +68,12 @@ final class LinkDetector {
             Result r = probe(name, networks.get(name), knownNames.contains(name), log);
             if (rank(r) > rank(best)) best = r;
         }
-        Rtl8153Usb.Reading u = usb.read(log);
+        UsbLink.Reading u = usb.read(log);
         if (u.sample != null) {
             // A USB result belongs to this USB device, never an assumed eth0 mapping.
             Result direct = new Result();
             direct.found = true; direct.usbDirect = true;
-            direct.iface = "RTL8153 USB"; direct.method = "RTL8153 / USB";
+            direct.iface = u.adapter+" USB"; direct.method = u.adapter+" / USB";
             direct.link = u.sample.link; direct.speed = u.sample.speed;
             direct.duplex = u.sample.duplex == 1 ? "Full Duplex" : u.sample.duplex == 0 ? "Half Duplex" : "—";
             direct.conflict = !u.sample.error.isEmpty();
@@ -83,6 +83,8 @@ final class LinkDetector {
         best.usbAvailable = u.available;
         best.usbPermissionNeeded = u.permissionNeeded;
         best.usbMessage = u.message;
+        best.adapter=u.adapter;
+        if(u.available&&!best.found){best.found=true;best.iface=u.adapter;}
         log.append("\nSelected: ").append(best.iface).append("; link=").append(best.link)
            .append("; exact Mbps=").append(best.speed).append("; conflict=").append(best.conflict).append('\n');
         log.append("Android bandwidth is an estimate, never proof of 100/1000.\n");

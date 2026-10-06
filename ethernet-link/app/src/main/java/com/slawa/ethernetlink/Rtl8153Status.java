@@ -21,24 +21,31 @@ final class Rtl8153Status {
         }
     }
     static Sample decode(byte[] bytes,int count) {
+        return decode(bytes,count,1000);
+    }
+    static Sample decode(byte[] bytes,int count,int maxMbps) {
         if (count != LENGTH || bytes == null || bytes.length < LENGTH)
             return unknown("incomplete transfer: "+count);
         int status=(bytes[0]&0xff)|((bytes[1]&0xff)<<8);
         if (status==0xffff) return unknown("invalid status 0xffff");
         if ((status&0x02)==0) return new Sample(0,-1,-1,"");
-        int bits=status&0x1c;
-        if (Integer.bitCount(bits)!=1 || (status&0x5700)!=0)
+        int bits=status&0x041c;
+        if (Integer.bitCount(bits)!=1 || (status&0x5300)!=0)
             return new Sample(1,-1,-1,"ambiguous or unsupported speed bits");
-        int speed=bits==0x10?1000:bits==0x08?100:10;
+        int speed=bits==0x400?2500:bits==0x10?1000:bits==0x08?100:10;
+        if(speed>maxMbps)return new Sample(1,-1,-1,"speed exceeds adapter family");
         return new Sample(1,speed,(status&1)!=0?1:0,"");
     }
     static Sample read(Transfer transfer,StringBuilder report) {
+        return read(transfer,report,1000);
+    }
+    static Sample read(Transfer transfer,StringBuilder report,int maxMbps) {
         byte[] first=new byte[LENGTH], second=new byte[LENGTH];
         int n1=transfer.read(REQUEST_TYPE,REQUEST,REGISTER,INDEX,first,LENGTH,TIMEOUT_MS);
         int n2=transfer.read(REQUEST_TYPE,REQUEST,REGISTER,INDEX,second,LENGTH,TIMEOUT_MS);
         report.append("usb.request=IN/VENDOR/DEVICE request=0x05 value=0xe908 index=0x0133 length=4\n");
         append(report,"usb.first",first,n1);append(report,"usb.second",second,n2);
-        Sample a=decode(first,n1), b=decode(second,n2);
+        Sample a=decode(first,n1,maxMbps), b=decode(second,n2,maxMbps);
         Sample result=combine(a,b);
         report.append("usb.link=").append(result.link).append("\nusb.speed=").append(result.speed)
               .append("\nusb.duplex=").append(result.duplex).append("\nusb.error=").append(result.error).append('\n');

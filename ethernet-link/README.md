@@ -1,12 +1,73 @@
-# Ethernet Link
+# Ethernet Link v2 — 2.0-test1
 
-Простое Android-приложение для проверки negotiated Ethernet link speed через USB-C → RJ45.
+Android-приложение для чтения согласованной скорости Ethernet через USB‑C адаптер.
+Целевой телефон для проверки: Samsung S24 Ultra, Android 16. APK: arm64-v8a, Android 8.0+.
 
-Показывает 10/100/1000 Мбит/с и Full/Half Duplex, если драйвер Samsung/USB-Ethernet разрешает чтение.
-Использует sysfs и запасной native SIOCETHTOOL ioctl. Это не Speedtest.
+## Что исправлено
 
-CI: Android APK build enabled.
+В v1 был только ACCESS_NETWORK_STATE. Native-код открывал AF_INET/SOCK_DGRAM без
+INTERNET и скрывал ошибку. Добавлено нормальное разрешение INTERNET: оно требуется
+для открытия сокета даже при локальном ioctl без отправки пакетов.
 
-CI retry: explicit Android SDK path.
+Способы чтения: sysfs speed/carrier/duplex; современный ETHTOOL_GLINKSETTINGS
+с двухэтапным согласованием размера буфера; прежний ETHTOOL_GSET. ETHTOOL_GLINK
+проверяется до и после чтения скорости. Есть IPv6 socket fallback и проверка
+существования интерфейса через SIOCGIFINDEX. eth0/eth1 проверяются и без DHCP,
+если Java не перечисляет интерфейс без IP-адреса.
 
-CI retry: manual Android SDK install.
+* Число в главной карточке — только скорость из драйвера/sysfs.
+* NetworkCapabilities bandwidth показан отдельно как оценка и не используется
+  для выбора 100/1000. AOSP может использовать фиксированные значения.
+* Нет интернета / нет DHCP не мешает прямому чтению линка.
+* Явный link down скрывает старую скорость; неизвестный статус отличается от down.
+* Противоречивые скорости во время автосогласования не выдаются за точное число.
+* Проверки выполняются последовательно в фоне. Результаты из прошлого состояния
+  Activity и до сетевого события отбрасываются.
+* Диагностика содержит errno по каждому native-методу, ошибки sysfs, модель
+  телефона, USB VID/PID и название адаптера. Не читает USB serial, IP или MAC.
+* Приложение не запускает Speedtest, не меняет сеть, не запрашивает root,
+  не отсоединяет USB-драйвер и не отправляет отчёты автоматически.
+
+## Установка и проверка
+
+v1 подписывался временным debug-ключом CI. Его закрытый ключ не сохранён.
+Поэтому v2 имеет отдельный applicationId `com.slawa.ethernetlink.v2` и устанавливается
+рядом с v1. Подпись v2 создаётся отдельно и сохраняется вне публичного репозитория.
+
+Проверить на телефоне:
+
+1. Один и тот же гигабитный USB адаптер: известный порт 1000 Мбит/с, исправный кабель.
+2. Известный порт 100 Мбит/с или порт с фиксированными 100 Мбит/с.
+3. Выдернуть RJ45, затем вернуть: старое число должно исчезнуть и обновиться.
+4. По возможности повторить без DHCP/интернета; Wi‑Fi не должен подменять Ethernet.
+5. Если остаётся `?`: «Диагностика» → «Копировать», передать отчёт для анализа.
+
+Настольные тесты и успешная сборка не подтверждают работу драйвера/SELinux Samsung.
+Физическая проверка на S24 Ultra пока не выполнена.
+
+## Сборка
+
+JDK 17, Gradle 8.9, Android SDK 35, NDK 27.2.12479018, CMake 3.22.1.
+
+```sh
+bash tests/run.sh
+gradle :app:assembleRelease
+```
+
+GitHub Actions `.github/workflows/build-ethernet-link.yml` запускает регрессионные
+проверки и собирает unsigned release APK. Для установки APK требуется подпись
+через Android apksigner. Приватный ключ не включать в git или CI-артефакты.
+
+## Проверки
+
+`tests/native_test.c`: GLINKSETTINGS handshake, запись всех трёх bitmap-буферов под
+ASan/UBSan, EACCES, некорректный размер handshake, неизвестная скорость и границы строк.
+`tests/LinkDecisionTest.java`: 10/100/1000/2500, обрыв во время чтения, смена скорости,
+отсутствие DHCP, отказ доступа, неизвестные значения и отсутствие подмены оценкой Android.
+Манифест проверяется на разрешение INTERNET как регрессия исходного дефекта.
+
+## Первичные источники
+
+* https://developer.android.com/reference/android/Manifest.permission#INTERNET
+* https://developer.android.com/reference/android/net/NetworkCapabilities#getLinkDownstreamBandwidthKbps()
+* https://android.googlesource.com/kernel/common/+/2bc6262c6117dd18106d5aa50d53e945b5d99c51/include/uapi/linux/ethtool.h

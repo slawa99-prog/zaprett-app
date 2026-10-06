@@ -1,3 +1,5 @@
 cmake_minimum_required(VERSION 3.22.1)
 project(ethernetlink)
-add_library(ethernetlink SHARED ethernetlink.c)
+add_library(ethernetlink SHARED ethernetlink.c link_probe.c)
+target_compile_options(ethernetlink PRIVATE -Wall -Wextra -Werror)
+target_link_options(ethernetlink PRIVATE "-Wl,-z,max-page-size=16384")

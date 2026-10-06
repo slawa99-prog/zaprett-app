@@ -1,10 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- AF_INET driver queries need this even without sending Internet traffic. -->
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <application
         android:allowBackup="false"
-        android:label="Ethernet Link"
+        android:label="Ethernet Link v2"
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
         <activity

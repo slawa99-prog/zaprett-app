@@ -1,4 +1,4 @@
-name: Build Ethernet Link APK
+name: Build Ethernet Link v2 APK
 
 on:
   push:
@@ -8,6 +8,9 @@ on:
       - 'ethernet-link/**'
       - '.github/workflows/build-ethernet-link.yml'
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   build:
@@ -36,14 +39,18 @@ jobs:
           yes | /tmp/android-sdk/cmdline-tools/latest/bin/sdkmanager --licenses >/dev/null || true
           /tmp/android-sdk/cmdline-tools/latest/bin/sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" "cmake;3.22.1"
 
-      - name: Build debug APK
+      - name: Regression checks
         working-directory: ethernet-link
-        run: gradle :app:assembleDebug --stacktrace
+        run: bash tests/run.sh
+
+      - name: Build unsigned release APK
+        working-directory: ethernet-link
+        run: gradle :app:assembleRelease --stacktrace
 
       - name: Rename APK
-        run: cp ethernet-link/app/build/outputs/apk/debug/app-debug.apk EthernetLink-debug.apk
+        run: cp ethernet-link/app/build/outputs/apk/release/app-release-unsigned.apk EthernetLink-v2-unsigned.apk
 
       - uses: actions/upload-artifact@v4
         with:
-          name: EthernetLink-APK
-          path: EthernetLink-debug.apk
+          name: EthernetLink-v2-unsigned
+          path: EthernetLink-v2-unsigned.apk

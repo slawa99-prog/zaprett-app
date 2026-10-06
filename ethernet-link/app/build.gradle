@@ -8,11 +8,12 @@ android {
     ndkVersion '27.2.12479018'
 
     defaultConfig {
-        applicationId 'com.slawa.ethernetlink'
+        // v1 used an ephemeral CI debug key. Keep it installed during v2 testing.
+        applicationId 'com.slawa.ethernetlink.v2'
         minSdk 26
         targetSdk 35
-        versionCode 1
-        versionName '1.0'
+        versionCode 2
+        versionName '2.0-test1'
 
         ndk {
             abiFilters 'arm64-v8a'

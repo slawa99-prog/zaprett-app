@@ -4,8 +4,9 @@ cd "$(dirname "$0")/.."
 mkdir -p build/checks
 cc -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer tests/native_test.c -o build/checks/native_test
 build/checks/native_test
-javac -d build/checks app/src/main/java/com/slawa/ethernetlink/LinkDecision.java tests/LinkDecisionTest.java
+javac -d build/checks app/src/main/java/com/slawa/ethernetlink/LinkDecision.java tests/LinkDecisionTest.java app/src/main/java/com/slawa/ethernetlink/Rtl8153Status.java tests/Rtl8153StatusTest.java
 java -cp build/checks com.slawa.ethernetlink.LinkDecisionTest
+java -cp build/checks com.slawa.ethernetlink.Rtl8153StatusTest
 python3 - <<'PY'
 import xml.etree.ElementTree as ET
 root=ET.parse('app/src/main/AndroidManifest.xml').getroot()

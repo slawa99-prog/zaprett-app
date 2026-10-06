@@ -13,6 +13,7 @@ final class UsbLink {
     private final Context context;
     private final UsbManager manager;
     private final UsbPermissionGate gate=new UsbPermissionGate();
+    private int attachBroadcasts,attachLaunches,manualRequests,permissionReplies;
     UsbLink(Context context){
         this.context=context.getApplicationContext();
         manager=(UsbManager)context.getSystemService(Context.USB_SERVICE);
@@ -25,6 +26,10 @@ final class UsbLink {
     String permissionAction(){return context.getPackageName()+".USB_PERMISSION";}
     private static String key(UsbDevice d){return d.getDeviceName()+":"+d.getDeviceId();}
     void detached(UsbDevice d){if(d!=null)gate.detached(key(d));}
+    void attached(boolean launch){if(launch)attachLaunches++;else attachBroadcasts++;}
+    void permissionResult(){permissionReplies++;gate.completed();}
+    String permissionReport(){return "\n[USB permission flow]\nmode=system_default_or_manual_button\nattach_broadcasts="+attachBroadcasts+
+        "\nattach_launches="+attachLaunches+"\nmanual_requests="+manualRequests+"\npermission_replies="+permissionReplies+"\n";}
     static UsbAdapterCatalog.Kind kind(UsbDevice d){
         UsbAdapterCatalog.Kind k=UsbAdapterCatalog.find(d.getVendorId(),d.getProductId());
         if(k==UsbAdapterCatalog.Kind.ASIX){
@@ -55,8 +60,9 @@ final class UsbLink {
             PendingIntent pending=PendingIntent.getBroadcast(context,0,intent,
                     PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
             manager.requestPermission(d,pending);
+            manualRequests++;
             return "Подтверди доступ. Если есть «Всегда использовать», отметь этот пункт.";
-        }catch(RuntimeException e){return manual?"Не удалось запросить USB-доступ: "+e.getClass().getSimpleName():"";}
+        }catch(RuntimeException e){gate.completed();return manual?"Не удалось запросить USB-доступ: "+e.getClass().getSimpleName():"";}
     }
     Reading read(StringBuilder report){
         Reading r=new Reading();report.append("\n[Direct USB]\n");

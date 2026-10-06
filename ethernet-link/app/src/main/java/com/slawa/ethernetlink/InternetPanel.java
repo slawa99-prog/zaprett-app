@@ -1,6 +1,7 @@
 package com.slawa.ethernetlink;
 
 import android.app.Activity;
+import android.content.pm.PackageInfo;
 import android.graphics.Color;
 import android.net.*;
 import android.net.http.SslError;
@@ -13,9 +14,8 @@ import androidx.webkit.ProxyConfig;
 import androidx.webkit.ProxyController;
 import androidx.webkit.WebViewFeature;
 import java.io.IOException;
-import java.net.InetAddress;
-import java.net.InetSocketAddress;
-import java.net.Socket;
+import java.nio.channels.SocketChannel;
+import java.util.ArrayDeque;
 
 /** The official Yandex page, wholly inside the app, with Ethernet-only HTTPS. */
 final class InternetPanel {
@@ -29,10 +29,13 @@ final class InternetPanel {
     private final FrameLayout content;
     private WebView web;
     private BoundProxy proxy;
+    private RacingConnector connector;
     private Network network;
     private boolean active;
     private int generation;
     private String lastError="";
+    private String lastSession="",webViewVersion="unknown";
+    private final ArrayDeque<String> webErrors=new ArrayDeque<>();
 
     InternetPanel(Activity activity){
         this.activity=activity;cm=(ConnectivityManager)activity.getSystemService(Activity.CONNECTIVITY_SERVICE);
@@ -79,10 +82,21 @@ final class InternetPanel {
             }
         }catch(RuntimeException e){lastError="Не удалось проверить Ethernet-подключение.";return null;}
         if(selected==null)lastError="Подключи Ethernet с доступом в интернет. После подключения дождись получения IP-адреса.";
+        if(selected!=null){
+            LinkProperties props=cm.getLinkProperties(selected);
+            boolean address=false,route=false;
+            if(props!=null){
+                for(LinkAddress a:props.getLinkAddresses())if(!a.getAddress().isLinkLocalAddress()&&!a.getAddress().isAnyLocalAddress())address=true;
+                for(RouteInfo r:props.getRoutes())if(r.isDefaultRoute())route=true;
+            }
+            if(!address||!route||props.getDnsServers().isEmpty()){
+                lastError="Ethernet подключён. Ожидаю IP-адрес, шлюз и DNS…";return null;
+            }
+        }
         return selected;
     }
     private void start(){
-        if(!active||web!=null)return;
+        if(!active||web!=null||network!=null)return;
         Network selected=selectNetwork();
         if(selected==null){message.setText(lastError);message.setVisibility(View.VISIBLE);status.setText("Интернетометр · ожидание Ethernet");return;}
         final int token=++generation;
@@ -92,7 +106,16 @@ final class InternetPanel {
             }
             network=selected;
             // Both DNS and every outgoing socket belong to this exact Network.
-            proxy=new BoundProxy((host,port)->openEthernet(selected,host,port));
+            connector=new RacingConnector(selected::getAllByName,()->{
+                NetworkCapabilities caps=cm.getNetworkCapabilities(selected);
+                if(caps==null||!caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)||caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN))
+                    throw new IOException("Ethernet unavailable");
+                SocketChannel channel=SocketChannel.open();
+                try{selected.bindSocket(channel.socket());return channel;}
+                catch(IOException|RuntimeException e){channel.close();throw e;}
+            });
+            proxy=new BoundProxy(connector);
+            lastSession="";webErrors.clear();
             ProxyConfig config=new ProxyConfig.Builder().addProxyRule("http://127.0.0.1:"+proxy.port())
                     .removeImplicitRules().build();
             message.setText("Подключаю Интернетометр через Ethernet…");message.setVisibility(View.VISIBLE);
@@ -106,29 +129,17 @@ final class InternetPanel {
             stop();lastError=e.getClass().getSimpleName();message.setText("Не удалось открыть Интернетометр. Нажми «Обновить». Проверь Android System WebView.");
         }
     }
-    private Socket openEthernet(Network chosen,String host,int port)throws IOException{
-        // No process binding, VPN bypass requests, global DNS or default socket factory.
-        NetworkCapabilities caps=cm.getNetworkCapabilities(chosen);
-        if(caps==null||!caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)||caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN))
-            throw new IOException("Ethernet unavailable");
-        IOException failure=new IOException("No Ethernet route");
-        InetAddress[] addresses=chosen.getAllByName(host);
-        for(InetAddress address:addresses){
-            Socket socket=chosen.getSocketFactory().createSocket();
-            try{socket.connect(new InetSocketAddress(address,port),5000);return socket;}
-            catch(IOException e){failure=e;try{socket.close();}catch(IOException ignored){}}
-        }
-        throw failure;
-    }
     private void createWebView(int token){
         try{
             web=new WebView(activity);
+            PackageInfo provider=WebView.getCurrentWebViewPackage();
+            if(provider!=null)webViewVersion=provider.packageName+" "+provider.versionName;
             WebSettings settings=web.getSettings();settings.setJavaScriptEnabled(true);settings.setDomStorageEnabled(true);
             settings.setAllowFileAccess(false);settings.setAllowContentAccess(false);
             settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
             settings.setGeolocationEnabled(false);settings.setJavaScriptCanOpenWindowsAutomatically(false);
             settings.setSupportMultipleWindows(false);settings.setMediaPlaybackRequiresUserGesture(true);
-            settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
+            settings.setCacheMode(WebSettings.LOAD_DEFAULT);
             CookieManager.getInstance().setAcceptThirdPartyCookies(web,false);
             web.setWebViewClient(new WebViewClient(){
                 @Override public boolean shouldOverrideUrlLoading(WebView v,WebResourceRequest request){
@@ -140,10 +151,15 @@ final class InternetPanel {
                     if(token!=generation)return;progress.setVisibility(View.GONE);
                 }
                 @Override public void onReceivedError(WebView v,WebResourceRequest req,WebResourceError error){
-                    if(token!=generation||!req.isForMainFrame())return;
+                    if(token!=generation)return;
+                    recordError("web.error="+error.getErrorCode()+" host="+req.getUrl().getHost()+" main="+req.isForMainFrame());
+                    if(!req.isForMainFrame())return;
                     lastError="web.error="+error.getErrorCode();
                     message.setText("Страница не загрузилась. Проверь интернет по кабелю и нажми «Обновить».");message.setVisibility(View.VISIBLE);
                     progress.setVisibility(View.GONE);
+                }
+                @Override public void onReceivedHttpError(WebView v,WebResourceRequest req,WebResourceResponse response){
+                    if(token==generation)recordError("http.status="+response.getStatusCode()+" host="+req.getUrl().getHost());
                 }
                 @Override public void onReceivedSslError(WebView v,SslErrorHandler h,SslError error){
                     h.cancel();if(token!=generation)return;
@@ -166,13 +182,22 @@ final class InternetPanel {
     }
     private void stop(){
         generation++;network=null;
-        if(proxy!=null){proxy.close();proxy=null;}
+        if(connector!=null)connector.close();
+        if(proxy!=null){proxy.close();lastSession=proxy.report()+(connector!=null?connector.report():"");proxy=null;}
+        connector=null;
         if(web!=null){WebView old=web;web=null;old.stopLoading();content.removeView(old);old.destroy();}
         // Keep the now-closed proxy override. Late WebView requests must fail closed.
         // The next session installs a fresh override before loading any remote page.
         progress.setVisibility(View.GONE);message.setVisibility(View.VISIBLE);
     }
     boolean back(){if(web!=null&&web.canGoBack()){web.goBack();return true;}return false;}
-    String report(){return "\n[Internetometer]\nactive="+active+"\nethernet_bound="+(network!=null)+"\nerror="+lastError+"\n";}
+    private void recordError(String error){if(webErrors.size()==12)webErrors.removeFirst();webErrors.addLast(error);}
+    String report(){
+        String session=proxy!=null?proxy.report()+(connector!=null?connector.report():""):lastSession;
+        StringBuilder out=new StringBuilder("\n[Internetometer]\nactive="+active+"\nethernet_bound="+(network!=null)+
+            "\nwebview="+webViewVersion+"\nerror="+lastError+"\n").append(session);
+        for(String error:webErrors)out.append(error).append('\n');
+        return out.toString();
+    }
     private int dp(int n){return Math.round(n*activity.getResources().getDisplayMetrics().density);}
 }

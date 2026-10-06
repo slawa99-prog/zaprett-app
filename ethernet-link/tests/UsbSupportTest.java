@@ -42,12 +42,17 @@ public final class UsbSupportTest {
         check(UsbAdapterCatalog.find(0x0b95,0x1790)==UsbAdapterCatalog.Kind.ASIX,"ASIX");
         check(UsbAdapterCatalog.find(0x0bda,0x8157)==null&&UsbAdapterCatalog.find(0x1234,0x8153)==null,"unknown IDs never probed");
         UsbPermissionGate gate=new UsbPermissionGate();
-        check(gate.shouldRequest("a",false,false),"first attach prompts");
-        check(!gate.shouldRequest("a",false,false),"deny/resume cannot loop");
+        check(!gate.shouldRequest("a",false,false),"attach before default grant must not prompt");
+        check(!gate.shouldRequest("a",true,false),"system default grant, no duplicate dialog");
+        check(gate.shouldRequest("a",false,true),"manual fallback when platform did not grant");
+        check(!gate.shouldRequest("a",false,true),"double tap cannot stack dialogs");
+        gate.completed();
+        check(!gate.shouldRequest("a",false,false),"denial/resume cannot loop");
         check(gate.shouldRequest("a",false,true),"explicit retry after denial");
         check(!gate.shouldRequest("a",true,true),"already allowed, no dialog");
-        gate.detached("a");check(gate.shouldRequest("a",false,false),"reused path after detach");
-        gate.retain(Collections.emptySet());check(gate.shouldRequest("a",false,false),"detach while app paused");
+        gate.detached("a");check(!gate.shouldRequest("a",false,false),"replug waits for Android default");
+        check(gate.shouldRequest("a",false,true),"manual fallback after replug");
+        gate.retain(Collections.emptySet());check(gate.shouldRequest("a",false,true),"detach while app paused clears pending");
         System.out.println("USB families, protocols, 40-ID whitelist and permission lifecycle passed");
     }
 }

@@ -45,6 +45,7 @@ public class MainActivity extends Activity {
         super.onCreate(saved);
         detector=new LinkDetector(this);
         usb=new UsbLink(this);
+        if(UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(getIntent().getAction()))usb.attached(true);
         cm=(ConnectivityManager)getSystemService(Context.CONNECTIVITY_SERVICE);
         LinearLayout shell=new LinearLayout(this);shell.setOrientation(LinearLayout.VERTICAL);shell.setBackgroundColor(0xfff8fafc);
         shell.setOnApplyWindowInsetsListener((v,insets)->{
@@ -88,7 +89,10 @@ public class MainActivity extends Activity {
                 // Re-query permission; incoming extras never grant access.
                 if(UsbManager.ACTION_USB_DEVICE_DETACHED.equals(i.getAction()))
                     usb.detached(i.getParcelableExtra(UsbManager.EXTRA_DEVICE));
-                if(resumed)usb.requestPermission(false);
+                if(UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(i.getAction()))usb.attached(false);
+                if(usb.permissionAction().equals(i.getAction()))usb.permissionResult();
+                // The attach broadcast precedes Android's default-handler permission grant.
+                // A request here races that grant and opens a redundant system dialog.
                 invalidateAndRefresh();
                 internet.networksChanged();
             }
@@ -104,7 +108,7 @@ public class MainActivity extends Activity {
     }
     @Override protected void onResume(){
         super.onResume();resumed=true;generation++;handler.post(tick);
-        usb.requestPermission(false);internet.setActive(selectedTab==1);
+        internet.setActive(selectedTab==1);
         callback=new ConnectivityManager.NetworkCallback(){
             private void changed(boolean link){handler.post(()->{if(resumed){if(link)invalidateAndRefresh();internet.networksChanged();}});}
             @Override public void onAvailable(Network n){changed(false);}
@@ -128,7 +132,7 @@ public class MainActivity extends Activity {
     }
     @Override protected void onNewIntent(Intent intent){
         super.onNewIntent(intent);setIntent(intent);
-        if(resumed)usb.requestPermission(false);
+        if(UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(intent.getAction()))usb.attached(true);
         invalidateAndRefresh();
     }
     @Override protected void onSaveInstanceState(Bundle state){super.onSaveInstanceState(state);state.putInt("tab",selectedTab);}
@@ -183,7 +187,7 @@ public class MainActivity extends Activity {
         if(!r.usbMessage.isEmpty())hint.setText(r.usbMessage);
     }
     private void diagnostics(){
-        final String snapshot=report+internet.report();
+        final String snapshot=report+usb.permissionReport()+internet.report();
         TextView view=text(snapshot,12,false,INK);view.setTypeface(Typeface.MONOSPACE);view.setTextIsSelectable(true);view.setPadding(dp(16),dp(16),dp(16),dp(16));
         ScrollView container=new ScrollView(this);container.addView(view);
         new AlertDialog.Builder(this).setTitle("Диагностика").setView(container)

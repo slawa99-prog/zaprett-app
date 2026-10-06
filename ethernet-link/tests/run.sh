@@ -4,7 +4,7 @@ cd "$(dirname "$0")/.."
 mkdir -p build/checks
 cc -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer tests/native_test.c -o build/checks/native_test
 build/checks/native_test
-sources=(LinkDecision Rtl8153Status AsixStatus UsbAdapterCatalog UsbPermissionGate BoundProxy)
+sources=(LinkDecision Rtl8153Status AsixStatus UsbAdapterCatalog UsbPermissionGate BoundProxy RacingConnector)
 files=()
 for name in "${sources[@]}"; do files+=("app/src/main/java/com/slawa/ethernetlink/$name.java"); done
 javac -d build/checks "${files[@]}" tests/*Test.java
@@ -12,6 +12,9 @@ java -cp build/checks com.slawa.ethernetlink.LinkDecisionTest
 java -cp build/checks com.slawa.ethernetlink.Rtl8153StatusTest
 java -cp build/checks com.slawa.ethernetlink.UsbSupportTest
 java -cp build/checks com.slawa.ethernetlink.BoundProxyTest
+java -cp build/checks com.slawa.ethernetlink.ProxyRegressionTest
+java -cp build/checks com.slawa.ethernetlink.ProxyIdleTest
+java -cp build/checks com.slawa.ethernetlink.RacingConnectorTest
 python3 - <<'PY'
 import xml.etree.ElementTree as ET
 import re
@@ -23,6 +26,9 @@ assert 'android.permission.ACCESS_NETWORK_STATE' in permissions
 ns='{http://schemas.android.com/apk/res/android}'
 activity=root.find('application/activity')
 assert activity.attrib[ns+'launchMode']=='singleTop'
+main=Path('app/src/main/java/com/slawa/ethernetlink/MainActivity.java').read_text()
+assert 'requestPermission(false)' not in main, 'Attach/resume must not race Android default grant'
+assert main.count('usb.requestPermission(true)')==1, 'Only manual button may ask for USB permission'
 assert any(x.attrib.get(ns+'name')=='android.hardware.usb.action.USB_DEVICE_ATTACHED' for x in activity.findall('intent-filter/action'))
 assert any(x.attrib.get(ns+'resource')=='@xml/usb_devices' for x in activity.findall('meta-data'))
 catalog=Path('app/src/main/java/com/slawa/ethernetlink/UsbAdapterCatalog.java').read_text()

@@ -10,5 +10,6 @@ final class NativeLink {
     private NativeLink() {}
     static boolean isLoaded() { return loaded; }
     static String loadError() { return error; }
+    static native int[] echoProbe(long networkHandle,byte[] address,int scope,int timeoutMs);
     static native String getLinkInfo(String interfaceName);
 }

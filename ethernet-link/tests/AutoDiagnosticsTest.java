@@ -5,6 +5,10 @@ public final class AutoDiagnosticsTest {
         ProbeStats stats=new ProbeStats();stats.add(0,1000);stats.add(0,3000);stats.add(1,-1);
         check(stats.replies==2&&stats.timeouts==1&&Math.abs(stats.loss()-100.0/3)<0.001,"loss denominator uses only measured echo requests");
         check(stats.describe().contains("2.0 мс"),"microseconds converted to milliseconds");
+        check(stats.jitterPairs==1&&stats.jitter()==2.0,"jitter uses existing consecutive RTT replies");
+        ProbeStats jitter=new ProbeStats();jitter.add(0,10000);jitter.add(1,-1);jitter.add(0,50000);
+        check(Double.isNaN(jitter.jitter()),"timeouts break jitter pairs, missing samples not interpolated");
+        jitter.add(0,60000);check(jitter.jitterPairs==1&&jitter.jitter()==10.0,"jitter resumes with adjacent successful responses");
         stats.add(2,-1);check(!stats.measurable()&&Double.isNaN(stats.loss()),"permission/network error must not be 100% packet loss");
         check(stats.describe().contains("Потери не вычислены"),"unavailable is explicit");
         ProbeStats blocked=new ProbeStats();for(int i=0;i<6;i++)blocked.add(1,-1);

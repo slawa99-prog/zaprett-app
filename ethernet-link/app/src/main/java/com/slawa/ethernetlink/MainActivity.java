@@ -22,7 +22,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 public class MainActivity extends Activity {
     private static final int INK=0xff0f172a, MUTED=0xff64748b, BLUE=0xff2563eb, GREEN=0xff15803d, AMBER=0xffa16207;
-    private TextView state, speed, details, estimate, hint;
+    private TextView state, speed, details, estimate, hint, addresses;
     private Button refresh, usbButton;
     private UsbLink usb;
     private InternetPanel internet;
@@ -77,6 +77,8 @@ public class MainActivity extends Activity {
         card.addView(text("Мбит/с · скорость линка",14,false,MUTED),lp(-2,-2,0));
         hint=text("",15,false,MUTED);hint.setGravity(Gravity.CENTER);card.addView(hint,lp(-1,-2,18));
         details=text("",14,false,MUTED);details.setGravity(Gravity.CENTER);card.addView(details,lp(-1,-2,16));
+        addresses=text("Мой IP (Ethernet): не назначен\nШлюз: не указан",14,false,INK);
+        addresses.setGravity(Gravity.CENTER);addresses.setTextIsSelectable(true);card.addView(addresses,lp(-1,-2,16));
         usbButton=new Button(this);usbButton.setText("Разрешить USB");usbButton.setAllCaps(false);usbButton.setVisibility(View.GONE);
         usbButton.setOnClickListener(v->{Toast.makeText(this,usb.requestPermission(true),Toast.LENGTH_LONG).show();invalidateAndRefresh();});
         root.addView(usbButton,lp(-1,dp(54),18));
@@ -84,7 +86,8 @@ public class MainActivity extends Activity {
         Button diagnostics=new Button(this);diagnostics.setText("Технический отчёт");diagnostics.setAllCaps(false);diagnostics.setOnClickListener(v->diagnostics());root.addView(diagnostics,lp(-1,dp(52),6));
         estimate=text("",13,false,MUTED);root.addView(estimate,lp(-1,-2,18));
         root.addView(text("Линк обновляется автоматически. Для чтения скорости линка интернет и IP-адрес не обязательны.",13,false,MUTED),lp(-1,-2,14));
-        TextView version=text("Версия "+BuildConfig.VERSION_NAME,11,false,MUTED);version.setGravity(Gravity.CENTER);version.setPadding(0,dp(6),0,dp(8));shell.addView(version,lp(-1,-2,0));
+        TextView version=text("Версия "+BuildConfig.VERSION_NAME,11,false,MUTED);version.setGravity(Gravity.CENTER);version.setPadding(0,dp(6),0,0);shell.addView(version,lp(-1,-2,0));
+        TextView author=text("developed by SVYATOSLAV",10,false,MUTED);author.setGravity(Gravity.CENTER);author.setPadding(0,dp(2),0,dp(8));shell.addView(author,lp(-1,-2,0));
         setContentView(shell);
         selectedTab=saved==null?0:saved.getInt("tab",0);selectTab(selectedTab);
         // Protected platform USB events must accept privileged OEM senders too.
@@ -92,7 +95,7 @@ public class MainActivity extends Activity {
         usbReceiver=new BroadcastReceiver(){
             @Override public void onReceive(Context c,Intent i){
                 if(UsbManager.ACTION_USB_DEVICE_DETACHED.equals(i.getAction())){
-                    usb.detached(i.getParcelableExtra(UsbManager.EXTRA_DEVICE));automatic.usbDetached();
+                    usb.detached(i.getParcelableExtra(UsbManager.EXTRA_DEVICE));automatic.usbDetached(i.getParcelableExtra(UsbManager.EXTRA_DEVICE));
                 }else if(UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(i.getAction()))usb.attached(false);
                 else return;
                 usb.observeTopology();invalidateAndRefresh();internet.networksChanged();automatic.networksChanged();
@@ -122,7 +125,7 @@ public class MainActivity extends Activity {
         super.onResume();resumed=true;generation++;handler.post(tick);
         internet.setActive(selectedTab==1);automatic.setVisible(selectedTab==2);
         callback=new ConnectivityManager.NetworkCallback(){
-            private void changed(boolean link){handler.post(()->{if(resumed){if(link)invalidateAndRefresh();internet.networksChanged();automatic.networksChanged();}});}
+            private void changed(boolean link){handler.post(()->{if(resumed){updateAddresses();if(link)invalidateAndRefresh();internet.networksChanged();automatic.networksChanged();}});}
             @Override public void onAvailable(Network n){changed(false);}
             @Override public void onLost(Network n){changed(true);}
             @Override public void onCapabilitiesChanged(Network n,NetworkCapabilities c){changed(c.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET));}
@@ -174,6 +177,7 @@ public class MainActivity extends Activity {
         if(resumed){speed.setText("—");state.setText("Проверяю…");hint.setText("");details.setText("");refresh();}
     }
     private void refresh(){
+        if(resumed)updateAddresses();
         if(!resumed||automatic.isRunning()||!busy.compareAndSet(false,true))return;
         final int token=generation;refresh.setEnabled(false);
         worker.execute(()->{
@@ -188,6 +192,7 @@ public class MainActivity extends Activity {
             });
         });
     }
+    private void updateAddresses(){addresses.setText(EthernetAddresses.read(cm));}
     private void show(LinkDetector.Result r){
         report=r.report;speed.setTextColor(INK);speed.setText("—");
         usbButton.setVisibility(r.usbAvailable&&r.usbPermissionNeeded?View.VISIBLE:View.GONE);
@@ -201,7 +206,7 @@ public class MainActivity extends Activity {
         if(!r.usbMessage.isEmpty())hint.setText(r.usbMessage);
     }
     private void diagnostics(){
-        final String snapshot=report+usb.permissionReport()+internet.report()+automatic.report();
+        final String snapshot=report+"\n[Адреса Ethernet]\n"+EthernetAddresses.read(cm)+"\n"+usb.permissionReport()+internet.report()+automatic.report();
         TextView view=text(snapshot,12,false,INK);view.setTypeface(Typeface.MONOSPACE);view.setTextIsSelectable(true);view.setPadding(dp(16),dp(16),dp(16),dp(16));
         ScrollView container=new ScrollView(this);container.addView(view);
         new AlertDialog.Builder(this).setTitle("Диагностика").setView(container)

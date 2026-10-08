@@ -6,7 +6,7 @@ cc -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer te
 build/checks/native_test
 cc -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer tests/echo_test.c -o build/checks/echo_test
 build/checks/echo_test
-sources=(LinkDecision Rtl8153Status AsixStatus UsbAdapterCatalog UsbPermissionGate BoundProxy RacingConnector ProbeStats DiagnosisRules)
+sources=(LinkDecision Rtl8153Status AsixStatus UsbAdapterCatalog UsbPermissionGate BoundProxy RacingConnector ProbeStats DiagnosisRules WebPageState Rtl8153Counters LineMonitor)
 files=()
 for name in "${sources[@]}"; do files+=("app/src/main/java/com/slawa/ethernetlink/$name.java"); done
 javac -d build/checks "${files[@]}" tests/*Test.java
@@ -18,6 +18,8 @@ java -cp build/checks com.slawa.ethernetlink.ProxyRegressionTest
 java -cp build/checks com.slawa.ethernetlink.ProxyIdleTest
 java -cp build/checks com.slawa.ethernetlink.RacingConnectorTest
 java -cp build/checks com.slawa.ethernetlink.AutoDiagnosticsTest
+java -cp build/checks com.slawa.ethernetlink.WebPageStateTest
+java -cp build/checks com.slawa.ethernetlink.PhysicalLineTest
 python3 - <<'PY'
 import xml.etree.ElementTree as ET
 import re

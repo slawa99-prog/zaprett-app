@@ -13,7 +13,7 @@ import javax.net.ssl.HttpsURLConnection;
 /** Small, user-started checks on one captured Ethernet Network. No default sockets. */
 final class AutoDiagnostics implements AutoCloseable {
     enum State { PASS,WARN,FAIL,SKIP }
-    static final String[] TITLES={"Физический линк","IP-адрес Ethernet","Шлюз","Интернет по IP","DNS","Сайты по HTTPS","Ping и потери ответов"};
+    static final String[] TITLES={"Физический линк","IP-адрес и DHCP","Шлюз","Интернет по IP","DNS","Сайты по HTTPS","Ping, jitter и потери ответов"};
     interface Listener {void row(int index,State state,String detail);void finished(String summary);}
     static final class Session {
         volatile boolean cancelled;volatile Network network;volatile String fingerprint;
@@ -67,7 +67,7 @@ final class AutoDiagnostics implements AutoCloseable {
             Snapshot s=snapshot();session.network=s.network;session.fingerprint=fingerprint(s);
             evidence.network=s.network!=null&&s.properties!=null&&!s.multiple;evidence.vpn=s.vpn;evidence.configured=(s.ipv4||s.ipv6)&&s.defaultRoute;
             if(!evidence.network){
-                listener.row(next++,State.WARN,s.multiple?"Найдено несколько Ethernet-подключений. Оставь одно для проверки.":"Android не сообщил IP-подключение Ethernet. Линк может существовать без IP-адреса.");
+                listener.row(next++,State.WARN,(s.multiple?"Найдено несколько Ethernet-подключений. Оставь одно для проверки.":"Android не сообщил IP-подключение Ethernet. Линк может существовать без IP-адреса.")+"\nDHCP-сервер: не определён");
                 skip(listener,next,"Нет однозначно выбранного Ethernet-подключения.");
                 listener.finished(s.multiple?"Оставь одно Ethernet-подключение и повтори проверку.":DiagnosisRules.summary(evidence));return;
             }
@@ -77,6 +77,7 @@ final class AutoDiagnostics implements AutoCloseable {
                 if(a.getAddress() instanceof Inet4Address)config.append(" · маска ").append(mask(a.getPrefixLength()));
             }
             config.append("\nMTU: ").append(s.properties.getMtu());
+            config.append('\n').append(EthernetAddresses.dhcp(s.properties));
             if(!(s.ipv4||s.ipv6))config.append("\nРабочий IP-адрес не назначен. DHCP или статическая настройка не подтверждены.");
             listener.row(next++,s.ipv4||s.ipv6?State.PASS:State.FAIL,config.toString());
             InetAddress gateway=null;StringBuilder routes=new StringBuilder();

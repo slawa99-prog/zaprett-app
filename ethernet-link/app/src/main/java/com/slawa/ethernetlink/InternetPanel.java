@@ -3,6 +3,7 @@ package com.slawa.ethernetlink;
 import android.app.Activity;
 import android.content.pm.PackageInfo;
 import android.graphics.Color;
+import android.graphics.Bitmap;
 import android.net.*;
 import android.net.http.SslError;
 import android.os.Handler;
@@ -53,6 +54,7 @@ final class InternetPanel {
         view.addView(content,new LinearLayout.LayoutParams(-1,0,1));
         message=new TextView(activity);message.setTextSize(16);message.setTextColor(0xff64748b);
         message.setGravity(Gravity.CENTER);message.setPadding(dp(24),dp(24),dp(24),dp(24));
+        message.setBackgroundColor(Color.WHITE);message.setClickable(true);
         content.addView(message,new FrameLayout.LayoutParams(-1,-1));
         status.setText("Яндекс Интернетометр · через Ethernet");
         message.setText("Подключи Ethernet с доступом в интернет.");
@@ -141,11 +143,22 @@ final class InternetPanel {
             settings.setSupportMultipleWindows(false);settings.setMediaPlaybackRequiresUserGesture(true);
             settings.setCacheMode(WebSettings.LOAD_DEFAULT);
             CookieManager.getInstance().setAcceptThirdPartyCookies(web,false);
+            final WebPageState page=new WebPageState();page.started(HOME);
             web.setWebViewClient(new WebViewClient(){
                 @Override public boolean shouldOverrideUrlLoading(WebView v,WebResourceRequest request){
                     // No ACTION_VIEW, external browser, app intent or native JavaScript bridge.
-                    if("https".equals(request.getUrl().getScheme()))return false;
+                    if("https".equals(request.getUrl().getScheme())){
+                        if(token==generation&&request.isForMainFrame()&&!page.isDocument(request.getUrl().toString()))page.started(request.getUrl().toString());
+                        return false;
+                    }
                     Toast.makeText(activity,"Эта ссылка не поддерживается внутри Интернетометра",Toast.LENGTH_SHORT).show();return true;
+                }
+                @Override public void onPageStarted(WebView v,String url,Bitmap favicon){
+                    if(token!=generation||url==null||!"https".equals(Uri.parse(url).getScheme()))return;
+                    page.started(url);lastError="";message.setVisibility(View.GONE);
+                }
+                @Override public void onPageCommitVisible(WebView v,String url){
+                    if(token==generation&&page.committed(url)){lastError="";message.setVisibility(View.GONE);}
                 }
                 @Override public void onPageFinished(WebView v,String url){
                     if(token!=generation)return;progress.setVisibility(View.GONE);
@@ -153,9 +166,11 @@ final class InternetPanel {
                 @Override public void onReceivedError(WebView v,WebResourceRequest req,WebResourceError error){
                     if(token!=generation)return;
                     recordError("web.error="+error.getErrorCode()+" host="+req.getUrl().getHost()+" main="+req.isForMainFrame());
-                    if(!req.isForMainFrame())return;
+                    if(!req.isForMainFrame()||!page.fail(req.getUrl().toString()))return;
                     lastError="web.error="+error.getErrorCode();
-                    message.setText("Страница не загрузилась. Проверь интернет по кабелю и нажми «Обновить».");message.setVisibility(View.VISIBLE);
+                    message.setText(error.getErrorCode()==ERROR_FAILED_SSL_HANDSHAKE?
+                        "Не удалось проверить защищённое соединение основной страницы. Проверь дату и интернет, затем нажми «Обновить».":
+                        "Страница не загрузилась. Проверь интернет по кабелю и нажми «Обновить».");message.setVisibility(View.VISIBLE);
                     progress.setVisibility(View.GONE);
                 }
                 @Override public void onReceivedHttpError(WebView v,WebResourceRequest req,WebResourceResponse response){
@@ -163,15 +178,19 @@ final class InternetPanel {
                 }
                 @Override public void onReceivedSslError(WebView v,SslErrorHandler h,SslError error){
                     h.cancel();if(token!=generation)return;
+                    boolean main=page.sslFailed(error.getUrl());
+                    recordError("tls.error="+error.getPrimaryError()+" host="+(error.getUrl()==null?"unknown":Uri.parse(error.getUrl()).getHost())+" main="+main);
+                    if(!main)return;
                     lastError="TLS validation failed";
-                    message.setText("Не удалось проверить защищённое соединение с сайтом. Проверь дату и интернет.");message.setVisibility(View.VISIBLE);
+                    message.setText("Не удалось проверить защищённое соединение основной страницы. Проверь дату и интернет, затем нажми «Обновить».");message.setVisibility(View.VISIBLE);
+                    progress.setVisibility(View.GONE);
                 }
                 @Override public boolean onRenderProcessGone(WebView v,RenderProcessGoneDetail detail){
                     if(token==generation){stop();message.setText("Интернетометр был закрыт системой. Нажми «Обновить».");}return true;
                 }
             });
             web.setWebChromeClient(new WebChromeClient(){
-                @Override public void onProgressChanged(WebView v,int value){if(token==generation){progress.setProgress(value);progress.setVisibility(value<100?View.VISIBLE:View.GONE);}}
+                @Override public void onProgressChanged(WebView v,int value){if(token==generation){progress.setProgress(value);progress.setVisibility(value<100&&!page.failed()?View.VISIBLE:View.GONE);}}
                 @Override public void onPermissionRequest(PermissionRequest request){request.deny();}
             });
             content.addView(web,0,new FrameLayout.LayoutParams(-1,-1));message.setVisibility(View.GONE);

@@ -57,7 +57,7 @@ public class MainActivity extends Activity {
         header.addView(text("Ethernet Link",28,true,INK));
         header.addView(text("Проверка USB‑C → Ethernet",14,false,MUTED),lp(-1,-2,4));
         LinearLayout tabs=new LinearLayout(this);
-        linkTab=tab("Линк",0);internetTab=tab("Интернетометр",1);checkTab=tab("Проверка",2);
+        linkTab=tab("Линк",0);internetTab=tab("speedtest",1);checkTab=tab("Проверка",2);
         tabs.addView(linkTab,new LinearLayout.LayoutParams(0,dp(46),1));
         LinearLayout.LayoutParams secondTab=new LinearLayout.LayoutParams(0,dp(46),1);secondTab.leftMargin=dp(4);
         tabs.addView(internetTab,secondTab);

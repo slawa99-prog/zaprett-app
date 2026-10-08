@@ -9,8 +9,8 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.*;
 
-/** Loopback CONNECT relay. Every upstream is supplied by the Ethernet connector.
- * TLS/WSS stay opaque. No direct/default-network fallback or traffic inspection. */
+/** Loopback HTTPS relay plus scoped HTTP forwarding for the Ufanet speedtest.
+ * Every upstream is supplied by the Ethernet connector. TLS/WSS stay opaque. */
 final class BoundProxy implements AutoCloseable {
     interface Connector { Socket open(String host,int port) throws IOException; }
     private static final int MAX_TUNNELS=64;
@@ -26,6 +26,7 @@ final class BoundProxy implements AutoCloseable {
     private final ScheduledExecutorService reaper=Executors.newSingleThreadScheduledExecutor(r->{Thread t=new Thread(r,"ethernet-idle");t.setDaemon(true);return t;});
     private final int idleMs;
     private final AtomicLong connections=new AtomicLong(),rejected=new AtomicLong(),errors=new AtomicLong(),idleClosed=new AtomicLong(),upBytes=new AtomicLong(),downBytes=new AtomicLong();
+    private final AtomicLong httpConnections=new AtomicLong();
     private final AtomicInteger active=new AtomicInteger(),peak=new AtomicInteger();
     private volatile String lastError="";
     private volatile boolean closed;
@@ -87,12 +88,22 @@ final class BoundProxy implements AutoCloseable {
         Socket upstream=null;Tunnel tunnel=null;
         try{
             client.setSoTimeout(10000);client.setTcpNoDelay(true);
-            String host=target(readHeader(client.getInputStream()));
-            if(host==null){rejected.incrementAndGet();respond(client,"403 Forbidden");return;}
-            upstream=connector.open(host,443);track(upstream);
+            String request=readHeader(client.getInputStream()),host=target(request);
+            boolean connect=host!=null;
+            HttpForwardRequest http=connect?null:HttpForwardRequest.parse(request);
+            if(!connect&&http==null){rejected.incrementAndGet();respond(client,"403 Forbidden");return;}
+            if(!connect)host=http.host;
+            upstream=connector.open(host,connect?443:80);track(upstream);
             upstream.setSoTimeout(0);upstream.setTcpNoDelay(true);client.setSoTimeout(0);
             tunnel=new Tunnel(client,upstream);tunnels.add(tunnel);final Tunnel relay=tunnel;
-            respond(client,"200 Connection Established");connections.incrementAndGet();
+            if(connect)respond(client,"200 Connection Established");
+            else{
+                SocketChannel channel=upstream.getChannel();
+                if(channel==null)upstream.getOutputStream().write(http.header);
+                else{ByteBuffer header=ByteBuffer.wrap(http.header);while(header.hasRemaining())channel.write(header);}
+                httpConnections.incrementAndGet();
+            }
+            connections.incrementAndGet();
             workers.execute(()->{try{relay.pipe(relay.client,relay.remote,upBytes);}finally{relay.uploadDone.countDown();}});
             relay.pipe(upstream,client,downBytes);
             // EOF half-closes one direction; its response may still be in flight.
@@ -128,7 +139,7 @@ final class BoundProxy implements AutoCloseable {
             else if(state==2)state=c=='\r'?3:0;
             else if(c=='\n')return b.toString(StandardCharsets.US_ASCII.name());else state=0;
         }
-        throw new IOException("CONNECT header too large");
+        throw new IOException("Proxy header too large");
     }
     private static void respond(Socket s,String status)throws IOException{
         s.getOutputStream().write(("HTTP/1.1 "+status+"\r\n\r\n").getBytes(StandardCharsets.US_ASCII));s.getOutputStream().flush();
@@ -136,7 +147,7 @@ final class BoundProxy implements AutoCloseable {
     private synchronized void track(Socket s)throws IOException{if(closed){closeSocket(s);throw new IOException("relay closed");}sockets.add(s);}
     private synchronized void forget(Socket s){if(s!=null){sockets.remove(s);closeSocket(s);}}
     private static void closeSocket(Socket s){if(s!=null)try{s.close();}catch(IOException ignored){}}
-    String report(){return "proxy.connections="+connections+"\nproxy.peak="+peak+"\nproxy.rejected="+rejected+"\nproxy.errors="+errors+
+    String report(){return "proxy.connections="+connections+"\nproxy.http_connections="+httpConnections+"\nproxy.peak="+peak+"\nproxy.rejected="+rejected+"\nproxy.errors="+errors+
         "\nproxy.idle_closed="+idleClosed+"\nproxy.up_bytes="+upBytes+"\nproxy.down_bytes="+downBytes+"\nproxy.last_error="+lastError+"\n";}
     @Override public synchronized void close(){
         if(closed)return;closed=true;try{server.close();}catch(IOException ignored){}

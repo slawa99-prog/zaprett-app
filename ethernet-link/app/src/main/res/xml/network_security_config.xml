@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <!-- The requested speedtest redirects HTTPS to HTTP. Keep this exception scoped. -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">ufanet.ru</domain>
+    </domain-config>
+</network-security-config>

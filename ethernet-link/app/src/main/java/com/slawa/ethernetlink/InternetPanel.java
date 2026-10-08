@@ -18,9 +18,9 @@ import java.io.IOException;
 import java.nio.channels.SocketChannel;
 import java.util.ArrayDeque;
 
-/** The official Yandex page, wholly inside the app, with Ethernet-only HTTPS. */
+/** The official Ufanet speedtest, wholly inside the app and bound to Ethernet. */
 final class InternetPanel {
-    private static final String HOME="https://yandex.ru/internet/";
+    private static final String HOME=SpeedtestSite.HOME;
     private final Activity activity;
     private final ConnectivityManager cm;
     private final Handler handler=new Handler(Looper.getMainLooper());
@@ -56,7 +56,7 @@ final class InternetPanel {
         message.setGravity(Gravity.CENTER);message.setPadding(dp(24),dp(24),dp(24),dp(24));
         message.setBackgroundColor(Color.WHITE);message.setClickable(true);
         content.addView(message,new FrameLayout.LayoutParams(-1,-1));
-        status.setText("Яндекс Интернетометр · через Ethernet");
+        status.setText("Уфанет speedtest · через Ethernet");
         message.setText("Подключи Ethernet с доступом в интернет.");
     }
     void setActive(boolean value){
@@ -100,7 +100,7 @@ final class InternetPanel {
     private void start(){
         if(!active||web!=null||network!=null)return;
         Network selected=selectNetwork();
-        if(selected==null){message.setText(lastError);message.setVisibility(View.VISIBLE);status.setText("Интернетометр · ожидание Ethernet");return;}
+        if(selected==null){message.setText(lastError);message.setVisibility(View.VISIBLE);status.setText("speedtest · ожидание Ethernet");return;}
         final int token=++generation;
         try{
             if(!WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)){
@@ -120,7 +120,7 @@ final class InternetPanel {
             lastSession="";webErrors.clear();
             ProxyConfig config=new ProxyConfig.Builder().addProxyRule("http://127.0.0.1:"+proxy.port())
                     .removeImplicitRules().build();
-            message.setText("Подключаю Интернетометр через Ethernet…");message.setVisibility(View.VISIBLE);
+            message.setText("Подключаю speedtest через Ethernet…");message.setVisibility(View.VISIBLE);
             ProxyController.getInstance().setProxyOverride(config,r->handler.post(r),()->{
                 if(!active||token!=generation||network==null)return;
                 // Do not create or load WebView before the routing override is applied.
@@ -128,7 +128,7 @@ final class InternetPanel {
                 createWebView(token);
             });
         }catch(RuntimeException|IOException e){
-            stop();lastError=e.getClass().getSimpleName();message.setText("Не удалось открыть Интернетометр. Нажми «Обновить». Проверь Android System WebView.");
+            stop();lastError=e.getClass().getSimpleName();message.setText("Не удалось открыть speedtest. Нажми «Обновить». Проверь Android System WebView.");
         }
     }
     private void createWebView(int token){
@@ -147,14 +147,14 @@ final class InternetPanel {
             web.setWebViewClient(new WebViewClient(){
                 @Override public boolean shouldOverrideUrlLoading(WebView v,WebResourceRequest request){
                     // No ACTION_VIEW, external browser, app intent or native JavaScript bridge.
-                    if("https".equals(request.getUrl().getScheme())){
+                    if(SpeedtestSite.allowsNavigation(request.getUrl().toString())){
                         if(token==generation&&request.isForMainFrame()&&!page.isDocument(request.getUrl().toString()))page.started(request.getUrl().toString());
                         return false;
                     }
-                    Toast.makeText(activity,"Эта ссылка не поддерживается внутри Интернетометра",Toast.LENGTH_SHORT).show();return true;
+                    Toast.makeText(activity,"Эта ссылка не поддерживается внутри speedtest",Toast.LENGTH_SHORT).show();return true;
                 }
                 @Override public void onPageStarted(WebView v,String url,Bitmap favicon){
-                    if(token!=generation||url==null||!"https".equals(Uri.parse(url).getScheme()))return;
+                    if(token!=generation||!SpeedtestSite.allowsNavigation(url))return;
                     page.started(url);lastError="";message.setVisibility(View.GONE);
                 }
                 @Override public void onPageCommitVisible(WebView v,String url){
@@ -186,7 +186,7 @@ final class InternetPanel {
                     progress.setVisibility(View.GONE);
                 }
                 @Override public boolean onRenderProcessGone(WebView v,RenderProcessGoneDetail detail){
-                    if(token==generation){stop();message.setText("Интернетометр был закрыт системой. Нажми «Обновить».");}return true;
+                    if(token==generation){stop();message.setText("speedtest был закрыт системой. Нажми «Обновить».");}return true;
                 }
             });
             web.setWebChromeClient(new WebChromeClient(){
@@ -195,9 +195,9 @@ final class InternetPanel {
             });
             content.addView(web,0,new FrameLayout.LayoutParams(-1,-1));message.setVisibility(View.GONE);
             LinkProperties props=cm.getLinkProperties(network);
-            status.setText("Яндекс · Ethernet"+(props!=null&&props.getInterfaceName()!=null?" · "+props.getInterfaceName():""));
+            status.setText("Уфанет · Ethernet"+(props!=null&&props.getInterfaceName()!=null?" · "+props.getInterfaceName():""));
             lastError="";web.loadUrl(HOME);
-        }catch(RuntimeException e){stop();lastError=e.getClass().getSimpleName();message.setText("Не удалось запустить встроенный Интернетометр. Обнови Android System WebView.");}
+        }catch(RuntimeException e){stop();lastError=e.getClass().getSimpleName();message.setText("Не удалось запустить встроенный speedtest. Обнови Android System WebView.");}
     }
     private void stop(){
         generation++;network=null;
@@ -213,7 +213,7 @@ final class InternetPanel {
     private void recordError(String error){if(webErrors.size()==12)webErrors.removeFirst();webErrors.addLast(error);}
     String report(){
         String session=proxy!=null?proxy.report()+(connector!=null?connector.report():""):lastSession;
-        StringBuilder out=new StringBuilder("\n[Internetometer]\nactive="+active+"\nethernet_bound="+(network!=null)+
+        StringBuilder out=new StringBuilder("\n[Speedtest]\nsite="+HOME+"\nactive="+active+"\nethernet_bound="+(network!=null)+
             "\nwebview="+webViewVersion+"\nerror="+lastError+"\n").append(session);
         for(String error:webErrors)out.append(error).append('\n');
         return out.toString();

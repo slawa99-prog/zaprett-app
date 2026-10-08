@@ -6,7 +6,7 @@ cc -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer te
 build/checks/native_test
 cc -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer tests/echo_test.c -o build/checks/echo_test
 build/checks/echo_test
-sources=(LinkDecision Rtl8153Status AsixStatus UsbAdapterCatalog UsbPermissionGate BoundProxy RacingConnector ProbeStats DiagnosisRules WebPageState Rtl8153Counters LineMonitor)
+sources=(LinkDecision Rtl8153Status AsixStatus UsbAdapterCatalog UsbPermissionGate BoundProxy HttpForwardRequest SpeedtestSite RacingConnector ProbeStats DiagnosisRules WebPageState Rtl8153Counters LineMonitor)
 files=()
 for name in "${sources[@]}"; do files+=("app/src/main/java/com/slawa/ethernetlink/$name.java"); done
 javac -d build/checks "${files[@]}" tests/*Test.java
@@ -14,6 +14,7 @@ java -cp build/checks com.slawa.ethernetlink.LinkDecisionTest
 java -cp build/checks com.slawa.ethernetlink.Rtl8153StatusTest
 java -cp build/checks com.slawa.ethernetlink.UsbSupportTest
 java -cp build/checks com.slawa.ethernetlink.BoundProxyTest
+java -cp build/checks com.slawa.ethernetlink.BoundProxyHttpTest
 java -cp build/checks com.slawa.ethernetlink.ProxyRegressionTest
 java -cp build/checks com.slawa.ethernetlink.ProxyIdleTest
 java -cp build/checks com.slawa.ethernetlink.RacingConnectorTest
@@ -29,6 +30,12 @@ permissions={e.attrib['{http://schemas.android.com/apk/res/android}name'] for e 
 assert 'android.permission.INTERNET' in permissions, 'Native socket requires INTERNET'
 assert 'android.permission.ACCESS_NETWORK_STATE' in permissions
 ns='{http://schemas.android.com/apk/res/android}'
+assert root.find('application').attrib[ns+'networkSecurityConfig']=='@xml/network_security_config'
+security=ET.parse('app/src/main/res/xml/network_security_config.xml').getroot()
+assert security.find('base-config').attrib['cleartextTrafficPermitted']=='false'
+exceptions=security.findall('domain-config')
+assert len(exceptions)==1 and exceptions[0].attrib['cleartextTrafficPermitted']=='true'
+assert [(d.text,d.attrib.get('includeSubdomains')) for d in exceptions[0].findall('domain')]==[('ufanet.ru','true')]
 activity=root.find('application/activity')
 assert activity.attrib[ns+'launchMode']=='singleTop'
 main=Path('app/src/main/java/com/slawa/ethernetlink/MainActivity.java').read_text()

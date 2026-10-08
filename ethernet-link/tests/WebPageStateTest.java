@@ -17,6 +17,11 @@ public final class WebPageStateTest {
         check(!WebPageState.sameDocument(home,home+"?ad=1"),"query is part of request identity");
         check(!WebPageState.sameDocument(home,"http://yandex.ru/internet/"),"scheme matters");
         check(!WebPageState.sameDocument(home,null)&&!WebPageState.sameDocument(home,"%%%"),"malformed URLs do not crash");
+        state.started("https://speedtest.ufanet.ru/");state.started(SpeedtestSite.HOME);
+        check(!state.fail("https://speedtest.ufanet.ru/"),"old HTTPS callback after Ufanet redirect ignored");
+        check(state.committed(SpeedtestSite.HOME),"Ufanet HTTP page commits normally");
+        check(!state.sslFailed("https://cdn.example.org/script.js"),"HTTPS subresource does not cover HTTP speedtest");
+        check(WebPageState.sameDocument("http://SPEEDTEST.UFANET.ru:80/#result",SpeedtestSite.HOME),"default HTTP port and fragment normalized");
         System.out.println("WebView main-document errors, subresources, redirects and reload state passed");
     }
 }

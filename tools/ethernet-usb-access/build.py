@@ -74,7 +74,7 @@ def main():
     files["SHA256SUMS.txt"] = ("\r\n".join(
         hashlib.sha256(data).hexdigest() + "  " + name for name, data in sorted(files.items())
     ) + "\r\n").encode("ascii")
-    release = dist / "EthernetLink-Samsung-USB-Access-1.0-test1.zip"
+    release = dist / "EthernetLink-Samsung-USB-Access-1.0-test2.zip"
     archive(release, files)
     print("Package:", release)
     print("SHA256:", hashlib.sha256(release.read_bytes()).hexdigest())

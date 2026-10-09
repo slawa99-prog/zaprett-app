@@ -5,7 +5,7 @@ set "EL_ADB=%~dp0adb.exe"
 set "EL_JAR=%~dp0ethernet-usb-access.jar"
 set "EL_REMOTE=/data/local/tmp/ethernet-link-usb-access-1.jar"
 
-echo Ethernet Link - Samsung RTL8153 USB access - 1.0-test1
+echo Ethernet Link - Samsung RTL8153 USB access - 1.0-test2
 echo.
 if not exist "!EL_ADB!" (
   echo Copy START.cmd and ethernet-usb-access.jar into your platform-tools folder.
@@ -19,18 +19,55 @@ if not exist "!EL_JAR!" (
 
 echo Keep wireless debugging connected, then plug the Ethernet adapter into the phone.
 echo Available ADB connections:
-"!EL_ADB!" devices
+"!EL_ADB!" devices -l > "usb-access-devices.txt" 2>&1
+if errorlevel 1 (
+  type "usb-access-devices.txt"
+  echo Could not list ADB connections. Send usb-access-devices.txt for diagnosis.
+  goto finish
+)
+type "usb-access-devices.txt"
 echo.
+set "EL_COUNT=0"
+for /f "usebackq tokens=1,2" %%A in ("usb-access-devices.txt") do (
+  if "%%B"=="device" (
+    set /a EL_COUNT+=1
+    set "EL_DEVICE_!EL_COUNT!=%%A"
+  )
+)
+if "!EL_COUNT!"=="0" (
+  echo No authorized, online phone was found.
+  echo Enable wireless debugging and reconnect ADB. If shown as unauthorized, allow debugging on the phone.
+  echo USB permission has not been changed. Save usb-access-devices.txt if you need help.
+  goto finish
+)
 set "EL_TARGET="
-set /p "EL_TARGET=Enter the phone IP:port shown above: "
-if not defined EL_TARGET goto badtarget
-echo(!EL_TARGET!| "%SystemRoot%\System32\findstr.exe" /r /x "[0-9][0-9.]*:[0-9][0-9]*" >nul
-if errorlevel 1 goto badtarget
+if "!EL_COUNT!"=="1" (
+  set "EL_TARGET=!EL_DEVICE_1!"
+  goto selected
+)
+
+:selectdevice
+echo More than one ADB connection is available:
+for /l %%N in (1,1,!EL_COUNT!) do echo %%N - !EL_DEVICE_%%N!
+echo The same phone can appear twice, by IP and by its adb-... name. Either connection works.
+set "EL_INDEX="
+set /p "EL_INDEX=Enter the connection number for your Samsung, or Q to quit: "
+if /i "!EL_INDEX!"=="Q" goto finish
+for /l %%N in (1,1,!EL_COUNT!) do (
+  if "!EL_INDEX!"=="%%N" set "EL_TARGET=!EL_DEVICE_%%N!"
+)
+if not defined EL_TARGET (
+  echo Enter a number from the list.
+  goto selectdevice
+)
+
+:selected
+echo Selected ADB connection: !EL_TARGET!
 
 "!EL_ADB!" -s "!EL_TARGET!" get-state > "usb-access-result.txt" 2>&1
 if errorlevel 1 (
   type "usb-access-result.txt"
-  echo The phone is not connected. Check its current IP:port using adb devices.
+  echo The selected connection was lost. Reconnect the phone and run START.cmd again.
   goto finish
 )
 
@@ -78,10 +115,6 @@ if not "!EL_DUMP_EXIT!"=="0" echo Could not read USB state; the phone may have d
 echo Reports: usb-access-result.txt and usb-access-state.txt
 echo Copy the reports before running this tool again; they are overwritten each time.
 goto finish
-
-:badtarget
-echo Enter the numeric IPv4 address and connection port from adb devices, for example 192.168.1.10:37001.
-echo Use the connection port, not the pairing-code port.
 
 :finish
 echo.

@@ -17,7 +17,7 @@ import java.util.List;
 
 /** Runs once via app_process as the already-authorized ADB shell. No app is installed. */
 public final class UsbAccessHelper {
-    private static final String VERSION = "1.0-test1";
+    private static final String VERSION = "1.0-test2";
 
     public static void main(String[] args) {
         try {

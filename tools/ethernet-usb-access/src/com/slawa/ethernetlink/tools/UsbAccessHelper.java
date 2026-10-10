@@ -11,13 +11,23 @@ import android.os.UserHandle;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 /** Runs once via app_process as the already-authorized ADB shell. No app is installed. */
 public final class UsbAccessHelper {
-    private static final String VERSION = "1.0-test2";
+    private static final String VERSION = "1.0-test3";
+    private static String stage = "startup";
+    private static boolean requestAccepted;
 
     public static void main(String[] args) {
         try {
@@ -28,13 +38,17 @@ public final class UsbAccessHelper {
                 failure = ((InvocationTargetException) failure).getCause();
             }
             System.err.println("RESULT=ERROR");
+            System.err.println("error.stage=" + stage);
+            System.err.println("persistent_permission.setter_accepted=" + requestAccepted);
             System.err.println("error=" + failure.getClass().getSimpleName() + ": " + failure.getMessage());
+            failure.printStackTrace(System.err);
             System.err.println("Save this output. No root or security-setting changes are required.");
             System.exit(1);
         }
     }
 
     private static void run(String mode) throws Exception {
+        stage = "validate_target";
         System.out.println("Ethernet Link USB access helper " + VERSION);
         System.out.println("mode=" + mode);
         System.out.println("phone=" + Build.MANUFACTURER + " " + Build.MODEL + "; API " + Build.VERSION.SDK_INT);
@@ -54,13 +68,16 @@ public final class UsbAccessHelper {
         System.out.println("user=" + TargetPolicy.USER + "; uid=" + uid);
         System.out.println("adapter=0bda:8153; path=" + device.getDeviceName());
 
-        Method check = usb.api.getMethod("hasDevicePermissionWithIdentity",
-                UsbDevice.class, String.class, int.class, int.class);
-        boolean before = hasPermission(usb, check, device, uid);
-        System.out.println("current_access.before=" + before);
+        // hasDevicePermissionWithIdentity fails on this Samsung/AOSP path because the
+        // service reads a USB serial without clearing the calling identity (UID 2000).
+        // Use the read-only system dump for verification. The setter below still enforces
+        // MANAGE_USB itself; no package identity or permission checks are patched.
+        stage = "read_permission_records_before";
+        UsbPermissionSnapshot before = snapshot(device, uid);
+        printSnapshot("before", before);
         if ("check".equals(mode)) {
             System.out.println("RESULT=CHECK_ONLY");
-            System.out.println("No settings were changed. This checks current access, not disk persistence.");
+            System.out.println("No settings were changed. These are system permission records, not an app USB-open test.");
             return;
         }
 
@@ -77,16 +94,20 @@ public final class UsbAccessHelper {
         TargetPolicy.unchanged(uid, latestApp.applicationInfo.uid, deviceIdentity, fingerprint(latestDevice));
 
         boolean allow = "grant".equals(mode);
+        stage = "set_persistent_permission";
         setter.invoke(usb.proxy, latestDevice, uid, user, allow);
+        requestAccepted = true;
         System.out.println("persistent_permission.request=" + (allow ? "ALLOW" : "DENY"));
         System.out.println("persistent_permission.setter=ACCEPTED");
-        boolean after = hasPermission(usb, check, latestDevice, uid);
-        System.out.println("current_access.after=" + after);
-        if (after != allow) {
-            throw new IllegalStateException("The setting was accepted, but current access does not match. "
-                    + "Keep the reports; this firmware needs further investigation.");
-        }
-        System.out.println("RESULT=" + (allow ? "GRANT_ACCEPTED" : "BLOCK_ACCEPTED"));
+        stage = "verify_persistent_record";
+        UsbDevice finalDevice = device(usb);
+        PackageInfo finalApp = application(packages);
+        TargetPolicy.unchanged(uid, finalApp.applicationInfo.uid, deviceIdentity, fingerprint(finalDevice));
+        UsbPermissionSnapshot after = snapshot(finalDevice, uid);
+        before.requireSameDevice(after);
+        printSnapshot("after", after);
+        after.requirePersistent(allow);
+        System.out.println("RESULT=" + (allow ? "GRANT_VERIFIED" : "BLOCK_VERIFIED"));
         System.out.println(allow
                 ? "Now unplug and reconnect the adapter. Open Ethernet Link without pressing Allow."
                 : "This stores a DENIAL, not the original ask-every-time behavior. Grant enables access again.");
@@ -146,8 +167,48 @@ public final class UsbAccessHelper {
                 + "|" + d.getConfigurationCount() + "|" + d.getInterfaceCount();
     }
 
-    private static boolean hasPermission(Service usb, Method check, UsbDevice device, int uid) throws Exception {
-        return (Boolean) check.invoke(usb.proxy, device, TargetPolicy.PACKAGE, -1, uid);
+    private static void printSnapshot(String when, UsbPermissionSnapshot snapshot) {
+        System.out.println("verification.source=dumpsys_usb");
+        System.out.println("persistent_permission.record." + when + "=" + snapshot.persistent);
+        System.out.println("temporary_permission.record." + when + "=" + snapshot.temporaryGrant);
+    }
+
+    private static UsbPermissionSnapshot snapshot(UsbDevice device, int uid) throws Exception {
+        Map<String, String> expected = new LinkedHashMap<>();
+        expected.put("name", device.getDeviceName());
+        expected.put("vendor_id", Integer.toString(device.getVendorId()));
+        expected.put("product_id", Integer.toString(device.getProductId()));
+        expected.put("class", Integer.toString(device.getDeviceClass()));
+        expected.put("subclass", Integer.toString(device.getDeviceSubclass()));
+        expected.put("protocol", Integer.toString(device.getDeviceProtocol()));
+        expected.put("manufacturer_name", String.valueOf(device.getManufacturerName()));
+        expected.put("product_name", String.valueOf(device.getProductName()));
+        return UsbPermissionSnapshot.read(usbDump(), expected, TargetPolicy.USER, uid);
+    }
+
+    private static String usbDump() throws Exception {
+        File report = File.createTempFile("ethernet-usb-report-", ".txt", new File("/data/local/tmp"));
+        java.lang.Process process = null;
+        try {
+            process = new ProcessBuilder("/system/bin/dumpsys", "-t", "5", "usb")
+                    .redirectErrorStream(true).redirectOutput(report).start();
+            if (!process.waitFor(8, TimeUnit.SECONDS)) throw new IOException("USB system report timed out.");
+            if (process.exitValue() != 0) throw new IOException("dumpsys usb failed: " + process.exitValue());
+            if (report.length() > 4 * 1024 * 1024) throw new IOException("USB system report exceeds 4 MiB.");
+            try (FileInputStream input = new FileInputStream(report);
+                    ByteArrayOutputStream bytes = new ByteArrayOutputStream()) {
+                byte[] buffer = new byte[8192];
+                int count;
+                while ((count = input.read(buffer)) != -1) {
+                    if (bytes.size() + count > 4 * 1024 * 1024) throw new IOException("USB report size limit.");
+                    bytes.write(buffer, 0, count);
+                }
+                return new String(bytes.toByteArray(), StandardCharsets.UTF_8);
+            }
+        } finally {
+            if (process != null && process.isAlive()) process.destroyForcibly();
+            if (!report.delete() && report.exists()) System.err.println("warning=Temporary USB report was not removed.");
+        }
     }
 
     private static final class Service {

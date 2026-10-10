@@ -51,6 +51,8 @@ def main():
     import os
     run("java", "-cp", str(classes) + os.pathsep + str(tests),
         "com.slawa.ethernetlink.tools.TargetPolicyTest")
+    run("java", "-cp", str(classes) + os.pathsep + str(tests),
+        "com.slawa.ethernetlink.tools.UsbPermissionSnapshotTest")
 
     input_jar = build / "classes.jar"
     archive(input_jar, {p.relative_to(classes).as_posix(): p.read_bytes()
@@ -74,7 +76,7 @@ def main():
     files["SHA256SUMS.txt"] = ("\r\n".join(
         hashlib.sha256(data).hexdigest() + "  " + name for name, data in sorted(files.items())
     ) + "\r\n").encode("ascii")
-    release = dist / "EthernetLink-Samsung-USB-Access-1.0-test2.zip"
+    release = dist / "EthernetLink-Samsung-USB-Access-1.0-test3.zip"
     archive(release, files)
     print("Package:", release)
     print("SHA256:", hashlib.sha256(release.read_bytes()).hexdigest())

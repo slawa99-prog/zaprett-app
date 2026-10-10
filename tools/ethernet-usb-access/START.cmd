@@ -5,7 +5,7 @@ set "EL_ADB=%~dp0adb.exe"
 set "EL_JAR=%~dp0ethernet-usb-access.jar"
 set "EL_REMOTE=/data/local/tmp/ethernet-link-usb-access-1.jar"
 
-echo Ethernet Link - Samsung RTL8153 USB access - 1.0-test2
+echo Ethernet Link - Samsung RTL8153 USB access - 1.0-test3
 echo.
 if not exist "!EL_ADB!" (
   echo Copy START.cmd and ethernet-usb-access.jar into your platform-tools folder.
@@ -72,7 +72,7 @@ if errorlevel 1 (
 )
 
 echo.
-echo 1 - CHECK current access; no settings changed
+echo 1 - CHECK USB permission records; no settings changed
 echo 2 - GRANT persistent USB access to Ethernet Link for this RTL8153
 echo 3 - BLOCK access; this saves a denial, not the original permission prompt
 echo Q - Quit

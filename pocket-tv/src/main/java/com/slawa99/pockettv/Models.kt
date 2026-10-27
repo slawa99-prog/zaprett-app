@@ -38,7 +38,7 @@ data class TestSnapshot(
         "cancelled" -> "Подбор остановлен. Готовые результаты сохранены"
         "interrupted" -> "Подбор прерван перезагрузкой или остановкой процесса"
         "failed" -> "Подбор остановлен: " + failure.ifEmpty {
-            if (tail.contains("curl not found or not functional")) "Pocket не смог запустить curl. Обновите Pocket TV и повторите подбор"
+            if (tail.contains("curl not found or not functional")) "Pocket не смог запустить curl. Обновите SV Pocket и повторите подбор"
             else "ошибка тестера Pocket. Откройте журнал"
         }
         else -> "Подбор ещё не запускался"

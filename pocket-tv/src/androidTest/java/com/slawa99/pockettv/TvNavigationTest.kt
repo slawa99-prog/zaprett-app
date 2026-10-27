@@ -80,6 +80,16 @@ class TvNavigationTest {
         assertEquals(1, fake.calls)
         screenshot(activity, "01-home")
 
+        instrument.runOnMainSync { tagged(activity, "nav_4").requestFocus() }
+        key(KeyEvent.KEYCODE_DPAD_CENTER)
+        key(KeyEvent.KEYCODE_DPAD_RIGHT)
+        instrument.runOnMainSync { assertEquals("about_scroll", activity.currentFocus?.tag) }
+        screenshot(activity, "01-about")
+        repeat(8) { key(KeyEvent.KEYCODE_DPAD_DOWN) }
+        screenshot(activity, "01-about-bottom")
+        key(KeyEvent.KEYCODE_DPAD_LEFT)
+        instrument.runOnMainSync { assertEquals("nav_4", activity.currentFocus?.tag) }
+
         instrument.runOnMainSync { tagged(activity, "nav_1").requestFocus() }
         key(KeyEvent.KEYCODE_DPAD_CENTER)
         val list = tagged(activity, "strategy_list") as ListView

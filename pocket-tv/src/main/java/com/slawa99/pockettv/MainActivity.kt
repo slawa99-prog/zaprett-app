@@ -10,7 +10,6 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.StateListDrawable
-import android.net.Uri
 import android.os.Bundle
 import android.text.TextUtils
 import android.view.Gravity
@@ -58,8 +57,8 @@ class MainActivity : Activity() {
             setPadding(dp(24), dp(20), dp(24), dp(20))
         }
         val rail = vertical().apply { setPadding(0, 0, dp(18), 0) }
-        rail.addView(label("POCKET", 25, mint, true))
-        rail.addView(label("TV · 1.0 test2", 13, muted).apply { setPadding(0, 0, 0, dp(20)) })
+        rail.addView(label(getString(R.string.app_name), 25, mint, true).apply { tag = "app_name" })
+        rail.addView(label(getString(R.string.app_tagline), 12, muted).apply { setPadding(0, dp(5), 0, dp(20)) })
         listOf("Главная", "Стратегии", "Подбор", "Журнал", "О приложении").forEachIndexed { index, name ->
             val button = button(name) { showPage(index) }.apply {
                 tag = "nav_$index"; gravity = Gravity.CENTER_VERTICAL or Gravity.START
@@ -67,7 +66,11 @@ class MainActivity : Activity() {
             }
             nav.add(button); rail.addView(button, rowParams())
         }
-        rail.addView(label("↑ ↓  Перемещение\nOK  Выбрать\n←  Разделы", 12, muted).apply { setPadding(0, dp(22), 0, 0) })
+        rail.addView(View(this), LinearLayout.LayoutParams(1, 0, 1f))
+        rail.addView(label("↑ ↓  Перемещение\nOK  Выбрать\n←  Разделы", 12, muted).apply { setPadding(0, dp(14), 0, 0) })
+        rail.addView(label(getString(R.string.app_version, BuildConfig.VERSION_NAME), 11, muted).apply {
+            tag = "app_version"; setPadding(0, dp(14), 0, 0)
+        })
         root.addView(rail, LinearLayout.LayoutParams(dp(172), -1))
         val body = vertical()
         title = label("Главная", 27, ink, true)
@@ -243,12 +246,14 @@ class MainActivity : Activity() {
     }
     private fun buildAbout() {
         val body = vertical()
-        body.addView(label("Pocket TV — оболочка для Zapret Pocket от sevcator", 20, ink, true), rowParams())
-        body.addView(label("Для первого запуска:\n1. Установите модуль Zapret Pocket через Magisk и перезагрузите приставку.\n2. Разрешите Pocket TV права суперпользователя.\n3. Откройте «Подбор» и запустите проверку каталога.\n4. Выберите результат: приложение сохранит стратегию и перезапустит Pocket.", 16), rowParams())
+        body.addView(label(getString(R.string.app_name), 20, ink, true), rowParams())
+        body.addView(label("Приложение от мастера Святослава для удобной настройки обхода на Android TV.", 16, mint), rowParams())
+        body.addView(label("Для первого запуска:\n1. Установите модуль Zapret Pocket через Magisk и перезагрузите приставку.\n2. Разрешите SV Pocket права суперпользователя.\n3. Откройте «Подбор» и запустите проверку каталога.\n4. Выберите результат: приложение сохранит стратегию и перезапустит сервис.", 16), rowParams())
         body.addView(label("Каталог читается из установленного модуля. Отдельно скачивать стратегии не нужно. Совместимость команд проверена по исходникам Pocket v71; ранние версии без маркеров результатов потребуется обновить.\n\nПодбор может длиться несколько часов. Закрытие приложения его не останавливает; перезагрузка приставки прерывает проверку. Частичные результаты сохраняются. После проверки возвращается прежнее состояние сервиса.\n\nНе запускайте одновременно второй модуль Zapret или тестер в терминале/WebUI. При смене провайдера запустите новый подбор: сохранённая оценка относится к предыдущей проверке.\n\nРейтинг основан на ответах сетевых проб Pocket. Дополнительные проверки модуля доступны в журнале. Встроенного теста воспроизведения ролика здесь нет; проверьте выбранный вариант в YouTube или SmartTube.\n\nПриложение не является официальным клиентом sevcator. Оно не устанавливает и не обновляет root-модуль автоматически.", 14, muted), rowParams())
-        addControl(body, "pocket_site", "Открыть страницу Zapret Pocket") { openUrl("https://github.com/sevcator/zapret-pocket/releases") }
-        addControl(body, "source", "Исходники Pocket TV") { openUrl("https://github.com/slawa99-prog/zaprett-app/tree/feature/pocket-tv/pocket-tv") }
-        scrolling(content, body)
+        scrolling(content, body).apply {
+            tag = "about_scroll"; isFocusable = true; isFocusableInTouchMode = true
+            nextFocusLeftId = nav[page].id
+        }
     }
     private fun render() {
         if (!::content.isInitialized) return
@@ -371,12 +376,12 @@ class MainActivity : Activity() {
         try {
             val full = app.diagnosticText()
             val text = if (full.length > 160000) full.take(2000) + "\n[Средняя часть журнала сокращена]\n" + full.takeLast(158000) else full
-            (getSystemService(CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Pocket TV log", text))
+            (getSystemService(CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("SV Pocket log", text))
             Toast.makeText(this, "Журнал скопирован в буфер обмена", Toast.LENGTH_LONG).show()
         } catch (e: Exception) { Toast.makeText(this, "Копирование не удалось: ${e.message}", Toast.LENGTH_LONG).show() }
     }
     private fun shareLog() {
-        try { startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, app.diagnosticText().takeLast(180000)), "Отправить журнал Pocket TV")) }
+        try { startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, app.diagnosticText().takeLast(180000)), "Отправить журнал SV Pocket")) }
         catch (_: Exception) { Toast.makeText(this, "На приставке нет приложения для отправки. Используйте «Скопировать».", Toast.LENGTH_LONG).show() }
     }
     private fun openVideo(smart: Boolean) {
@@ -385,10 +390,6 @@ class MainActivity : Activity() {
         val intent = names.firstNotNullOfOrNull { packageManager.getLeanbackLaunchIntentForPackage(it) ?: packageManager.getLaunchIntentForPackage(it) }
         if (intent == null) Toast.makeText(this, "${if (smart) "SmartTube" else "YouTube"} не найден. Откройте его из меню приставки.", Toast.LENGTH_LONG).show()
         else try { startActivity(intent) } catch (e: Exception) { Toast.makeText(this, e.message, Toast.LENGTH_LONG).show() }
-    }
-    private fun openUrl(url: String) {
-        try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
-        catch (_: Exception) { AlertDialog.Builder(this).setTitle("Откройте ссылку на телефоне или компьютере").setMessage(url).setPositiveButton("Закрыть", null).show() }
     }
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT && !nav.contains(currentFocus)) {

@@ -13,7 +13,7 @@ object NativeRuntime {
     fun prepare(context: Context): NativeInputs {
         // PackageManager selects the matching ABI and installs this executable read-only.
         val curl = File(context.applicationInfo.nativeLibraryDir, "libpocketcurl.so")
-        check(curl.isFile) { "В APK отсутствует curl для этой приставки. Установите полную сборку Pocket TV." }
+        check(curl.isFile) { "В APK отсутствует curl для этой приставки. Установите полную сборку SV Pocket." }
         val factory = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
         factory.init(null as KeyStore?)
         val issuers = factory.trustManagers.filterIsInstance<X509TrustManager>()

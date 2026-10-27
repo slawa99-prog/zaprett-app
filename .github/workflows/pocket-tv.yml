@@ -1,4 +1,4 @@
-name: Pocket TV APK
+name: SV Pocket APK
 on:
   push:
     branches: [feature/pocket-tv]
@@ -78,7 +78,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: pocket-tv-test2
+          name: sv-pocket-1.0.3
           path: |
             pocket-tv/build/outputs/apk/debug/*.apk
             pocket-tv/build/reports/

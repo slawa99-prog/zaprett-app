@@ -108,7 +108,7 @@ class PocketApplication : Application() {
             finally { main.post { busy = ""; notifyChanged() } }
         }
     }
-    fun diagnosticText(): String = "Pocket TV 1.0-test2\nPocket ${module.version}\nСервис: ${module.service}\nСтратегия: ${module.selected}\nСессия: ${snapshot.id}\n${snapshot.headline()}\n${snapshot.completed}/${snapshot.total}\n\n$error\n\n$operationLog\n\n${fullLog.ifEmpty { snapshot.tail }}"
+    fun diagnosticText(): String = "SV Pocket ${BuildConfig.VERSION_NAME}\nPocket ${module.version}\nСервис: ${module.service}\nСтратегия: ${module.selected}\nСессия: ${snapshot.id}\n${snapshot.headline()}\n${snapshot.completed}/${snapshot.total}\n\n$error\n\n$operationLog\n\n${fullLog.ifEmpty { snapshot.tail }}"
     fun serviceLabel(status: String) = when (status) {
         "running" -> "работает"
         "stopped" -> "остановлен"

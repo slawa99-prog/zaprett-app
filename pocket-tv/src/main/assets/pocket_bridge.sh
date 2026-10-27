@@ -1,5 +1,5 @@
 #!/system/bin/sh
-# Pocket TV owns only BASE. All network/firewall work is delegated to Pocket.
+# SV Pocket owns only BASE. All network/firewall work is delegated to Pocket.
 umask 077
 BASE="${POCKET_TV_BASE:-/data/adb/pocket-tv}"
 MOD="${POCKET_TV_MODULE:-/data/adb/modules/zapret}"
@@ -35,7 +35,7 @@ require_module() {
     [ ! -e "$MOD/disable" ] && [ ! -e "$MOD/remove" ] || fail 'Модуль Pocket отключён или ожидает удаления в Magisk. Включите его и перезагрузите приставку.'
 }
 acquire() {
-    mkdir -p "$BASE" || fail 'Не удалось создать каталог Pocket TV.'
+    mkdir -p "$BASE" || fail 'Не удалось создать каталог SV Pocket.'
     if ! mkdir "$LOCK" 2>/dev/null; then
         if alive "$LOCK/owner"; then fail 'Предыдущая операция ещё выполняется. Дождитесь её завершения.'; fi
         # A missing owner may be the brief interval between mkdir and writing it.
@@ -67,10 +67,10 @@ prepare_curl() {
     # Pocket v71 bundles a Termux curl executable without its shared libraries.
     # Install our ABI-matched Android executable into our own directory, leaving
     # the module intact. Its resolver can discover the working fallback via PATH.
-    printf 'Pocket TV: проверка curl перед запуском\n' > "$BASE/preflight.log"
+    printf 'SV Pocket: проверка curl перед запуском\n' > "$BASE/preflight.log"
     [ -f "$MOD/common.sh" ] || fail 'Не найден common.sh модуля Pocket. Переустановите модуль.'
     [ -f "${POCKET_TV_CURL_SOURCE:-}" ] && [ -s "${POCKET_TV_CA_SOURCE:-}" ] ||
-        fail 'Встроенный curl или сертификаты недоступны. Обновите APK Pocket TV.'
+        fail 'Встроенный curl или сертификаты недоступны. Обновите APK SV Pocket.'
     mkdir -p "$RUNTIME" || fail 'Не удалось подготовить curl.'
     cp "$POCKET_TV_CURL_SOURCE" "$RUNTIME/curl.bin.tmp" &&
         chmod 700 "$RUNTIME/curl.bin.tmp" || fail 'Не удалось подготовить встроенный curl.'
@@ -97,7 +97,7 @@ CURL_WRAPPER
     if [ -z "$resolved" ] || ! "$resolved" --version >> "$BASE/preflight.log" 2>&1; then
         fail 'Pocket не смог выбрать рабочий curl. Откройте журнал. Сервис и прошлый рейтинг сохранены.'
     fi
-    printf '\nPocket TV: curl готов: %s\n' "$resolved" >> "$BASE/preflight.log"
+    printf '\nSV Pocket: curl готов: %s\n' "$resolved" >> "$BASE/preflight.log"
 }
 inspect() {
     require_module
@@ -187,7 +187,7 @@ run_test() {
     trap 'touch "$SESSION/cancel"' INT TERM
     before="$("$SHELL_BIN" "$CLI" status 2>/dev/null | tail -n 1)"
     printf '%s\n' "$before" > "$SESSION/before"
-    printf 'Pocket TV: подготовка. Предыдущее состояние: %s\n' "$before" > "$SESSION/test.log"
+    printf 'SV Pocket: подготовка. Предыдущее состояние: %s\n' "$before" > "$SESSION/test.log"
     cat "$BASE/preflight.log" >> "$SESSION/test.log" 2>/dev/null
     # Own restoration here, so cancellation uses the same cleanup path as completion.
     "$SHELL_BIN" "$CLI" stop >> "$SESSION/test.log" 2>&1
@@ -213,7 +213,7 @@ run_test() {
         result=$?
     fi
     write_state restoring
-    printf 'Pocket TV: восстановление сервиса…\n' > "$SESSION/recovery.log"
+    printf 'SV Pocket: восстановление сервиса…\n' > "$SESSION/recovery.log"
     "$SHELL_BIN" "$CLI" stop >> "$SESSION/recovery.log" 2>&1
     restore=ok
     case "$before" in running|degraded)
@@ -233,7 +233,7 @@ run_test() {
     fi
 }
 
-[ "$(id -u)" = 0 ] || fail 'Нет root-доступа. Разрешите Pocket TV права суперпользователя в Magisk.'
+[ "$(id -u)" = 0 ] || fail 'Нет root-доступа. Разрешите SV Pocket права суперпользователя в Magisk.'
 case "${1:-}" in
     inspect) inspect ;;
     poll) poll ;;
@@ -265,5 +265,5 @@ case "${1:-}" in
         printf '%s\n' "$selected" | "$SHELL_BIN" "$CLI" strategy || exit 1
         [ "$(value "$MOD/config/current-strategy")" = "$selected" ] || fail 'Pocket не сохранил выбранную стратегию.'
         "$SHELL_BIN" "$CLI" restart ;;
-    *) fail 'Неизвестная команда Pocket TV.' ;;
+    *) fail 'Неизвестная команда SV Pocket.' ;;
 esac

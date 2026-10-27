@@ -43,7 +43,7 @@ class RootBackend(private val context: Context) : PocketBackend {
         }.orEmpty()
         val cmd = environment + "sh ${PocketProtocol.shellQuote(bridge.absolutePath)} " + args.joinToString(" ") { PocketProtocol.shellQuote(it) }
         val process = try { ProcessBuilder("su", "-c", cmd).redirectErrorStream(true).start() }
-        catch (e: Exception) { throw IllegalStateException("Не удалось вызвать su. Нужен Magisk и разрешение root для Pocket TV. ${e.message}", e) }
+        catch (e: Exception) { throw IllegalStateException("Не удалось вызвать su. Нужен Magisk и разрешение root для SV Pocket. ${e.message}", e) }
         val output = ByteArrayOutputStream()
         val reader = Thread({
             try {
@@ -68,7 +68,7 @@ class RootBackend(private val context: Context) : PocketBackend {
             reader.join(1500)
             val text = synchronized(output) { output.toString("UTF-8") }.trim()
             if (process.exitValue() != 0) throw IllegalStateException(text.ifEmpty {
-                "Нет root-доступа или команда Pocket завершилась с кодом ${process.exitValue()}. Разрешите Pocket TV суперпользователя в Magisk."
+                "Нет root-доступа или команда Pocket завершилась с кодом ${process.exitValue()}. Разрешите SV Pocket суперпользователя в Magisk."
             })
             return text
         } finally { process.outputStream.close() }

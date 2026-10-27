@@ -57,7 +57,7 @@ class MainActivity : Activity() {
             setPadding(dp(24), dp(20), dp(24), dp(20))
         }
         val rail = vertical().apply { setPadding(0, 0, dp(18), 0) }
-        rail.addView(label(getString(R.string.app_name), 25, mint, true).apply { tag = "app_name" })
+        rail.addView(brandLogo().apply { tag = "app_name" }, LinearLayout.LayoutParams(-1, dp(30)))
         rail.addView(label(getString(R.string.app_tagline), 12, muted).apply { setPadding(0, dp(5), 0, dp(20)) })
         listOf("Главная", "Стратегии", "Подбор", "Журнал", "О приложении").forEachIndexed { index, name ->
             val button = button(name) { showPage(index) }.apply {
@@ -98,6 +98,13 @@ class MainActivity : Activity() {
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
     private fun vertical() = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+    private fun brandLogo() = ImageView(this).apply {
+        setImageResource(R.drawable.sv_pocket_wordmark)
+        contentDescription = getString(R.string.app_name)
+        scaleType = ImageView.ScaleType.FIT_START
+        adjustViewBounds = true
+        isFocusable = false
+    }
     private fun label(value: String, size: Int = 16, color: Int = ink, bold: Boolean = false) = TextView(this).apply {
         text = value; textSize = size.toFloat(); setTextColor(color)
         if (bold) setTypeface(null, Typeface.BOLD)
@@ -246,7 +253,7 @@ class MainActivity : Activity() {
     }
     private fun buildAbout() {
         val body = vertical()
-        body.addView(label(getString(R.string.app_name), 20, ink, true), rowParams())
+        body.addView(brandLogo(), LinearLayout.LayoutParams(dp(210), dp(38)).apply { bottomMargin = dp(8) })
         body.addView(label("Приложение от мастера Святослава для удобной настройки обхода на Android TV.", 16, mint), rowParams())
         body.addView(label("Для первого запуска:\n1. Установите модуль Zapret Pocket через Magisk и перезагрузите приставку.\n2. Разрешите SV Pocket права суперпользователя.\n3. Откройте «Подбор» и запустите проверку каталога.\n4. Выберите результат: приложение сохранит стратегию и перезапустит сервис.", 16), rowParams())
         body.addView(label("Каталог читается из установленного модуля. Отдельно скачивать стратегии не нужно. Совместимость команд проверена по исходникам Pocket v71; ранние версии без маркеров результатов потребуется обновить.\n\nПодбор может длиться несколько часов. Закрытие приложения его не останавливает; перезагрузка приставки прерывает проверку. Частичные результаты сохраняются. После проверки возвращается прежнее состояние сервиса.\n\nНе запускайте одновременно второй модуль Zapret или тестер в терминале/WebUI. При смене провайдера запустите новый подбор: сохранённая оценка относится к предыдущей проверке.\n\nРейтинг основан на ответах сетевых проб Pocket. Дополнительные проверки модуля доступны в журнале. Встроенного теста воспроизведения ролика здесь нет; проверьте выбранный вариант в YouTube или SmartTube.\n\nПриложение не является официальным клиентом sevcator. Оно не устанавливает и не обновляет root-модуль автоматически.", 14, muted), rowParams())

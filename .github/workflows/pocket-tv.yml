@@ -78,7 +78,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: sv-pocket-1.0.3
+          name: sv-pocket-1.0.4
           path: |
             pocket-tv/build/outputs/apk/debug/*.apk
             pocket-tv/build/reports/

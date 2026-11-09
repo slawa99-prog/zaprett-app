@@ -127,10 +127,13 @@ class TvNavigationTest {
         click("video_yes")
         assertEquals("general (ALT11)", app.confirmedName)
         assertTrue(app.selectedConfirmed)
+        instrument.runOnMainSync { assertEquals("help_home", activity.currentFocus?.tag) }
         instrument.runOnMainSync { app.videoOpened() }
         click("video_no")
         assertFalse(app.selectedConfirmed)
         assertNotNull(app.nextStrategy)
+        assertFalse(app.notice.contains("Сохранена рабочая"))
+        instrument.runOnMainSync { assertEquals("next_strategy", activity.currentFocus?.tag) }
         screenshot(activity, "04-help-next")
 
         click("nav_6"); click("open_updates")

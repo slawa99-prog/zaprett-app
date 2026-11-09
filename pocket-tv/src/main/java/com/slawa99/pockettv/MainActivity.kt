@@ -217,8 +217,14 @@ class MainActivity : Activity() {
         addControl(body, "help_repair", "Перезапустить обход") { app.control(if (app.module.service == "running") "restart" else "start", helpAfter = true) }
         addControl(body, "help_youtube", "Открыть YouTube и проверить видео") { openVideo(false, feedback = true) }
         addControl(body, "help_smarttube", "Проверить в SmartTube") { openVideo(true, feedback = true) }
-        addControl(body, "video_yes", "Видео работает — сохранить стратегию") { app.videoWorks() }
-        addControl(body, "video_no", "Проблема осталась") { app.videoFailed() }
+        addControl(body, "video_yes", "Видео работает — сохранить стратегию") {
+            app.videoWorks(); controls["help_home"]?.requestFocus()
+        }
+        addControl(body, "video_no", "Проблема осталась") {
+            app.videoFailed()
+            val next = controls["next_strategy"]?.takeIf { it.isEnabled && it.visibility == View.VISIBLE }
+            (next ?: controls["help_tests"])?.requestFocus()
+        }
         addControl(body, "next_strategy", "Попробовать следующую стратегию") {
             app.nextStrategy?.let { confirmApply(it) }
         }

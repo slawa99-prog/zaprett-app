@@ -120,6 +120,7 @@ class PocketApplication : Application() {
         if (selectedConfirmed) prefs.edit().remove("working_name").remove("working_catalog").apply()
         tried.add(module.selected); prefs.edit().putBoolean("awaiting_video", false).apply()
         help = HelpReport("Попробуем другую стратегию", "Выберите следующую стратегию или верните последнюю рабочую. Если подходящих результатов нет, запустите полный подбор.", true, phase = "alternatives")
+        notice = "Вы сообщили: видео не работает со стратегией ${module.selected}"
         notifyChanged()
     }
     fun diagnose() = operation("Проверяем интернет…") {

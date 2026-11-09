@@ -23,11 +23,10 @@ import java.util.Locale
 
 class MainActivity : Activity() {
     private val app get() = application as PocketApplication
-    private val ink = Color.rgb(240, 245, 238)
-    private val muted = Color.rgb(161, 183, 192)
-    private val mint = Color.rgb(79, 224, 228)
-    private val card = Color.rgb(24, 40, 49)
-    private val bg = Color.rgb(11, 20, 26)
+    private val ink = PocketColors.ink
+    private val muted = PocketColors.muted
+    private val mint = PocketColors.mint
+    private val card = PocketColors.card
     private lateinit var content: FrameLayout
     private lateinit var status: TextView
     private lateinit var title: TextView
@@ -52,6 +51,7 @@ class MainActivity : Activity() {
             ?: window.decorView.findViewWithTag<View>("about_scroll")?.requestFocus()
     }
     private var info: TextView? = null
+    private var heroEmblem: HeroEmblem? = null
     private var subtitle: TextView? = null
     private var progressTitle: TextView? = null
     private var progressCount: TextView? = null
@@ -70,16 +70,18 @@ class MainActivity : Activity() {
         // first-run confirmation above the app and intercept remote input.
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_FULLSCREEN
         val root = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL; setBackgroundColor(bg)
-            setPadding(dp(24), dp(20), dp(24), dp(20))
+            orientation = LinearLayout.HORIZONTAL; background = AmbientBackground()
+            setPadding(dp(24), dp(20), dp(24), dp(16))
         }
-        val rail = vertical().apply { setPadding(0, 0, dp(18), 0) }
+        val rail = vertical().apply { setPadding(0, 0, dp(14), 0) }
         rail.addView(brandLogo().apply { tag = "app_name" }, LinearLayout.LayoutParams(-1, dp(30)))
         rail.addView(label(getString(R.string.app_tagline), 12, muted).apply { setPadding(0, dp(5), 0, dp(20)) })
         listOf(0 to "Главная", 5 to "Помощь", 6 to "Настройки").forEach { (index, name) ->
-            val button = button(name) { backStack.clear(); showPage(index, remember = false) }.apply {
+            val icon = when (index) { 0 -> PocketIcon.HOME; 5 -> PocketIcon.HELP; else -> PocketIcon.SETTINGS }
+            val button = PocketButton(this, icon, navigation = true).apply {
+                id = View.generateViewId()
+                text = name; setOnClickListener { backStack.clear(); showPage(index, remember = false) }
                 tag = "nav_$index"; gravity = Gravity.CENTER_VERTICAL or Gravity.START
-                setPadding(dp(12), 0, dp(6), 0)
             }
             nav.add(button); rail.addView(button, rowParams())
         }
@@ -88,14 +90,16 @@ class MainActivity : Activity() {
         rail.addView(label(getString(R.string.app_version, BuildConfig.VERSION_NAME), 11, muted).apply {
             tag = "app_version"; setPadding(0, dp(14), 0, 0)
         })
-        root.addView(rail, LinearLayout.LayoutParams(dp(172), -1))
+        root.addView(rail, LinearLayout.LayoutParams(dp(174), -1))
+        root.addView(View(this).apply { setBackgroundColor(Color.argb(75, 89, 131, 152)) },
+            LinearLayout.LayoutParams(dp(1), -1).apply { marginEnd = dp(17) })
         val body = vertical()
         title = label("Главная", 27, ink, true)
-        body.addView(title)
+        body.addView(title, rowParams().apply { bottomMargin = dp(12) })
         status = label("", 14, muted).apply {
             maxLines = 3; ellipsize = TextUtils.TruncateAt.END
             setPadding(dp(10), dp(7), dp(10), dp(7))
-            background = focusBackground()
+            background = PocketSurface(resources.displayMetrics.density)
             setOnClickListener { if (app.error.isNotEmpty()) showError() }
         }
         body.addView(status, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8); bottomMargin = dp(10) })
@@ -126,7 +130,7 @@ class MainActivity : Activity() {
     }
     private fun label(value: String, size: Int = 16, color: Int = ink, bold: Boolean = false) = TextView(this).apply {
         text = value; textSize = size.toFloat(); setTextColor(color)
-        if (bold) setTypeface(null, Typeface.BOLD)
+        typeface = Typeface.create(if (bold) "sans-serif-medium" else "sans-serif", Typeface.NORMAL)
         includeFontPadding = false
         setLineSpacing(dp(3).toFloat(), 1f)
     }
@@ -134,23 +138,53 @@ class MainActivity : Activity() {
         setColor(fill); cornerRadius = dp(10).toFloat()
         if (stroke != null) setStroke(dp(2), stroke)
     }
-    private fun focusBackground() = StateListDrawable().apply {
-        addState(intArrayOf(android.R.attr.state_focused), shape(Color.rgb(32, 69, 82), mint))
-        addState(intArrayOf(android.R.attr.state_pressed), shape(Color.rgb(36, 83, 93), mint))
-        addState(intArrayOf(android.R.attr.state_enabled), shape(card))
-        addState(intArrayOf(), shape(Color.rgb(24, 35, 31)))
-    }
-    private fun button(value: String, action: () -> Unit) = Button(this).apply {
+    private fun focusBackground() = PocketSurface(resources.displayMetrics.density)
+    private fun button(value: String, action: () -> Unit) = PocketButton(this).apply {
         id = View.generateViewId(); text = value; textSize = 15f; isAllCaps = false
-        setTextColor(ColorStateList(arrayOf(intArrayOf(-android.R.attr.state_enabled), intArrayOf()), intArrayOf(Color.rgb(105, 126, 115), ink)))
-        background = focusBackground(); minimumHeight = dp(46); minHeight = dp(46)
-        setPadding(dp(14), dp(8), dp(14), dp(8)); isFocusable = true; isFocusableInTouchMode = true
         setOnClickListener { action() }
     }
     private fun rowParams() = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) }
     private fun addControl(parent: LinearLayout, key: String, caption: String, action: () -> Unit): Button {
-        val b = button(caption, action).apply { tag = key }
+        val b = PocketButton(this, controlIcon(key), prominent = key in setOf("install_update", "reboot_update"),
+            arrow = key.startsWith("home_") || key.startsWith("open_")).apply {
+            id = View.generateViewId(); text = caption; tag = key
+            setOnClickListener { action() }
+        }
         controls[key] = b; parent.addView(b, rowParams()); return b
+    }
+    private fun controlIcon(key: String): PocketIcon = when (key) {
+        "home_primary", "help_youtube" -> PocketIcon.YOUTUBE
+        "home_smarttube", "help_smarttube" -> PocketIcon.SMARTTUBE
+        "home_help", "video_no" -> PocketIcon.HELP
+        "home_update", "open_updates", "install_update", "help_update" -> PocketIcon.DOWNLOAD
+        "check_update", "refresh", "help_repair", "restart" -> PocketIcon.REFRESH
+        "start", "reboot_update" -> PocketIcon.POWER
+        "stop" -> PocketIcon.STOP
+        "video_yes" -> PocketIcon.CHECK
+        "next_strategy" -> PocketIcon.CHEVRON
+        "restore_strategy", "update_later" -> PocketIcon.BACK
+        "help_home" -> PocketIcon.HOME
+        "help_setup", "open_about" -> PocketIcon.INFO
+        "open_log", "update_details" -> PocketIcon.LOG
+        "open_strategies" -> PocketIcon.LIST
+        "auto_update_check" -> PocketIcon.AUTO
+        "open_advanced" -> PocketIcon.SETTINGS
+        else -> PocketIcon.SEARCH
+    }
+    private fun hero(parent: LinearLayout, icon: PocketIcon? = null): LinearLayout {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(20), dp(18), dp(18), dp(18))
+            background = PocketSurface(resources.displayMetrics.density, hero = true)
+        }
+        val text = vertical()
+        row.addView(text, LinearLayout.LayoutParams(0, -2, 1f))
+        if (icon != null && resources.configuration.screenWidthDp >= 850) {
+            heroEmblem = HeroEmblem(this, icon)
+            row.addView(heroEmblem, LinearLayout.LayoutParams(dp(112), dp(96)).apply { marginStart = dp(12) })
+        }
+        parent.addView(row, rowParams().apply { bottomMargin = dp(14) })
+        return text
     }
     private fun scrolling(parent: ViewGroup, inner: View): ScrollView = ScrollView(this).apply {
         isFillViewport = false; clipToPadding = false; setPadding(0, 0, dp(5), dp(4))
@@ -159,12 +193,12 @@ class MainActivity : Activity() {
     private fun showPage(index: Int, remember: Boolean = true) {
         if (remember && index != page) { rememberPosition(); backStack.add(page) }
         page = index.coerceIn(0, 8)
-        controls.clear(); content.removeAllViews(); info = null; subtitle = null
+        controls.clear(); content.removeAllViews(); info = null; subtitle = null; heroEmblem = null
         progressTitle = null; progressCount = null; progress = null; list = null; adapter = null; journal = null
         title.text = pageNames[page]
         nav.forEach { b ->
             val i = b.tag.toString().substringAfter('_').toInt()
-            b.text = if (b == navigationButton()) "• ${pageNames[i]}" else pageNames[i]
+            b.text = pageNames[i]; b.isSelected = b == navigationButton()
             b.nextFocusRightId = View.NO_ID
         }
         when (page) {
@@ -185,13 +219,9 @@ class MainActivity : Activity() {
     }
     private fun buildHome() {
         val body = vertical()
-        val hero = vertical().apply {
-            setPadding(dp(22), dp(20), dp(22), dp(20))
-            background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(Color.rgb(25, 56, 66), card)).apply { cornerRadius = dp(14).toFloat() }
-        }
+        val hero = hero(body, PocketIcon.POWER)
         info = label("", 26, ink, true); hero.addView(info)
-        subtitle = label("", 15, muted).apply { setPadding(0, dp(10), 0, 0) }; hero.addView(subtitle)
-        body.addView(hero, rowParams().apply { bottomMargin = dp(18) })
+        subtitle = label("", 14, muted).apply { setPadding(0, dp(10), 0, 0) }; hero.addView(subtitle)
         addControl(body, "home_primary", "Открыть YouTube") {
             when {
                 app.update.blocksChanges -> { showPage(7); focusContent() }
@@ -200,18 +230,19 @@ class MainActivity : Activity() {
                 app.module.service != "running" -> app.control("start")
                 else -> openVideo(false)
             }
-        }.apply { textSize = 20f; minimumHeight = dp(62) }
+        }.apply { textSize = 19f; minimumHeight = dp(56) }
         addControl(body, "home_help", "YouTube не работает") { showPage(5); focusContent(); app.diagnose() }
         addControl(body, "home_smarttube", "Открыть SmartTube") { openVideo(true) }
         addControl(body, "home_test", "Посмотреть ход подбора") { showPage(2); focusContent() }
         addControl(body, "home_update", "Доступно обновление обхода") { showPage(7); focusContent() }
-        body.addView(label("После настройки обход запускается вместе с приставкой. Включать его каждый раз не нужно, если модуль включён в Magisk.", 13, muted).apply { setPadding(0, dp(12), 0, 0) })
+        body.addView(label("Обход запускается вместе с приставкой, если модуль включён в Magisk.", 13, muted).apply { setPadding(0, dp(8), 0, 0) })
         wireVerticalButtons(body); scrolling(content, body)
     }
     private fun buildHelp() {
         val body = vertical()
-        info = label("", 23, ink, true); body.addView(info, rowParams())
-        subtitle = label("", 16, muted); body.addView(subtitle, rowParams().apply { bottomMargin = dp(18) })
+        val hero = hero(body)
+        info = label("", 23, ink, true); hero.addView(info, rowParams())
+        subtitle = label("", 15, muted); hero.addView(subtitle)
         addControl(body, "diagnose", "Проверить подключение и обход") { app.diagnose() }
         addControl(body, "help_home", "Готово — на главную") { backStack.clear(); showPage(0, remember = false); focusContent() }
         addControl(body, "help_repair", "Перезапустить обход") { app.control(if (app.module.service == "running") "restart" else "start", helpAfter = true) }
@@ -257,8 +288,9 @@ class MainActivity : Activity() {
     }
     private fun buildUpdates() {
         val body = vertical()
-        info = label("", 23, ink, true); body.addView(info, rowParams())
-        subtitle = label("", 15, muted); body.addView(subtitle, rowParams())
+        val hero = hero(body, PocketIcon.DOWNLOAD)
+        info = label("", 23, ink, true); hero.addView(info, rowParams())
+        subtitle = label("", 14, muted); hero.addView(subtitle)
         progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             progressTintList = ColorStateList.valueOf(mint); indeterminateTintList = ColorStateList.valueOf(mint)
         }
@@ -426,6 +458,10 @@ class MainActivity : Activity() {
         }
         controls["auto_update_check"]?.text = "Проверять обновления при открытии: " + if (app.automaticUpdateCheck) "включено" else "выключено"
         if (page == 0) {
+            heroEmblem?.apply {
+                kind = when { u.blocksChanges -> PocketIcon.DOWNLOAD; s.active -> PocketIcon.SEARCH; else -> PocketIcon.POWER }
+                accent = if (m.service == "running" || u.blocksChanges || s.active) mint else muted
+            }
             info?.text = when {
                 u.pending -> "Обновление готово"
                 u.installing || app.updateRequested -> "Обновляем обход"
@@ -450,6 +486,13 @@ class MainActivity : Activity() {
                 !app.connected -> "Настроить обход"
                 m.service != "running" -> "Включить обход"
                 else -> "Открыть YouTube"
+            }
+            (controls["home_primary"] as? PocketButton)?.iconKind = when {
+                u.blocksChanges -> PocketIcon.DOWNLOAD
+                s.active -> PocketIcon.SEARCH
+                !app.connected -> PocketIcon.SETTINGS
+                m.service != "running" -> PocketIcon.POWER
+                else -> PocketIcon.YOUTUBE
             }
             visible("home_test", false)
             visible("home_update", u.pending || r != null && r.versionCode > m.versionCode && app.connected)
@@ -490,6 +533,10 @@ class MainActivity : Activity() {
             }
         }
         if (page == 7) {
+            heroEmblem?.apply {
+                kind = when { u.pending -> PocketIcon.POWER; u.phase in setOf("failed", "interrupted") -> PocketIcon.INFO; else -> PocketIcon.DOWNLOAD }
+                accent = if (u.phase in setOf("failed", "interrupted")) Color.rgb(255, 199, 164) else mint
+            }
             info?.text = when {
                 app.updateRequested || u.installing -> "Обновление устанавливается"
                 u.pending -> "Осталась перезагрузка"
@@ -545,7 +592,7 @@ class MainActivity : Activity() {
         override fun hasStableIds() = true
         override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
             val box = (convertView as? LinearLayout) ?: vertical().apply {
-                setPadding(dp(15), dp(13), dp(15), dp(13)); background = shape(card)
+                setPadding(dp(15), dp(13), dp(15), dp(13)); background = PocketSurface(resources.displayMetrics.density)
                 addView(label("", 17, ink, true))
                 addView(label("", 13, muted).apply { setPadding(0, dp(7), 0, 0) })
                 descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS

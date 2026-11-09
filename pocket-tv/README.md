@@ -33,7 +33,7 @@
 - Все root-команды выполняются вне UI-потока. Команды/имена экранируются; посторонний модуль с таким же ID отклоняется.
 - Журнал доступен на экране, копируется с подтверждением и отправляется через системное меню.
 
-APK не содержит движки или стратегии Pocket и не является официальным приложением sevcator. Модуль устанавливается и обновляется отдельно через Magisk. CI выдаёт APK с временной debug-подписью для проверки. Перед передачей пользователю, начиная с test2, APK подписывается постоянным ключом Pocket TV вне CI. Ключ и его резервная копия хранятся приватно вне репозитория. Будущие обновления должны подписываться этим же ключом. Ключ первой версии test1 не сохранился, поэтому переход test1 → test2 требует переустановки только APK; модуль Pocket и его выбранная стратегия остаются.
+APK не содержит движки или стратегии Pocket и не является официальным приложением sevcator. Первая установка модуля выполняется через Magisk; начиная с SV Pocket 1.1.0 обновить установленный модуль можно из приложения. CI выдаёт APK с временной debug-подписью для проверки. Перед передачей пользователю, начиная с test2, APK подписывается постоянным ключом Pocket TV вне CI. Ключ и его резервная копия хранятся приватно вне репозитория. Будущие обновления должны подписываться этим же ключом. Ключ первой версии test1 не сохранился, поэтому переход test1 → test2 требует переустановки только APK; модуль Pocket и его выбранная стратегия остаются.
 
 ### Исправление curl в 1.0-test2
 
@@ -53,6 +53,17 @@ cd pocket-tv && ../gradlew testDebugUnitTest assembleDebug
 ```
 
 Проверки: unit-тесты парсинга и рейтинга; интеграционные тесты реального shell-моста; воспроизведение ошибки оригинального curl v71 и проверка резерва через настоящий resolver Pocket на Android 14; HTTPS с TLS 1.2/1.3 и отклонением недоверенного сертификата; тест кнопок пульта, сохранения результатов и сообщений об ошибке. Тестовый модуль не меняет firewall. Реальное ядро приставки, Magisk, NFQUEUE и работа видео требуют проверки на устройстве.
+
+## SV Pocket 1.2.0 — visual design
+
+Native graphite/turquoise surfaces, silver SV branding, consistent action icons and
+glass/metal status emblems implement the approved visual concept. The selected
+navigation section has a left indicator; the remote's focused control has a separate
+outline. Module/strategy commands, ratings and update authentication are unchanged.
+Artwork uses Android Canvas/Drawable primitives, has no animation loop or network
+assets, and the decorative emblem is omitted on narrower screens to protect text.
+Dialogs, results and secondary screens share the same palette. Existing D-pad tests
+also capture the focused Home action, Settings and update confirmation dialog.
 
 ## SV Pocket 1.1.0
 

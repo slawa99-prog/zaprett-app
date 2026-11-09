@@ -87,6 +87,7 @@ class TvNavigationTest {
             key(KeyEvent.KEYCODE_DPAD_CENTER)
         }
         instrument.runOnMainSync { tagged(activity, "home_primary").requestFocus() }
+        screenshot(activity, "00-home-primary")
         key(KeyEvent.KEYCODE_DPAD_DOWN)
         instrument.runOnMainSync { assertEquals("home_help", activity.currentFocus?.tag) }
         key(KeyEvent.KEYCODE_DPAD_DOWN)
@@ -94,7 +95,12 @@ class TvNavigationTest {
         screenshot(activity, "00-after-down")
 
         click("nav_6"); key(KeyEvent.KEYCODE_DPAD_RIGHT)
-        instrument.runOnMainSync { assertEquals("open_updates", activity.currentFocus?.tag) }
+        instrument.runOnMainSync {
+            assertEquals("open_updates", activity.currentFocus?.tag)
+            assertTrue(tagged(activity, "nav_6").isSelected)
+            assertFalse(tagged(activity, "nav_0").isSelected)
+        }
+        screenshot(activity, "01-settings")
         click("open_advanced")
         click("restart"); waitForIdle(app)
         assertEquals(1, fake.calls)
@@ -142,6 +148,7 @@ class TvNavigationTest {
         instrument.runOnMainSync { assertTrue(tagged(activity, "install_update").isEnabled) }
         screenshot(activity, "05-update-available")
         click("install_update")
+        shell("screencap -p /sdcard/Download/pocket-tv-qa/05-update-confirm.png")
         key(KeyEvent.KEYCODE_BACK)
         assertEquals(0, fake.installs)
 

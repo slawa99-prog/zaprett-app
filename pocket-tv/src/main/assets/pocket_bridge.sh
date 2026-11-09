@@ -8,6 +8,9 @@ SESSION="$BASE/session"
 LOCK="$BASE/action.lock"
 SHELL_BIN="${POCKET_TV_SHELL:-/system/bin/sh}"
 RUNTIME="$BASE/runtime"
+UPDATE="$BASE/update"
+STAGING="${POCKET_TV_STAGING:-/data/adb/modules_update/zapret}"
+MAGISK_BIN="${POCKET_TV_MAGISK:-magisk}"
 [ ! -x "$RUNTIME/curl" ] || export PATH="$RUNTIME:$PATH"
 
 fail() { printf '%s\n' "$*" >&2; exit 1; }
@@ -48,10 +51,91 @@ acquire() {
     trap 'rm -rf "$LOCK"' EXIT
 }
 idle_required() {
+    update_in_progress && fail 'Обновление ещё устанавливается. Дождитесь завершения.'
+    [ ! -f "$STAGING/module.prop" ] || fail 'Обновление установлено. Сначала перезагрузите приставку.'
     active && fail 'Сначала остановите подбор и дождитесь восстановления сервиса.'
     # A tester opened in a terminal or WebUI must not race the application.
     if ps -A -o ARGS 2>/dev/null | grep -F "$CLI" | grep -E '(^|[[:space:]])test([[:space:]]|$)' | grep -v 'grep' >/dev/null; then
         fail 'Тестер Pocket уже запущен из терминала или WebUI. Завершите его перед этой операцией.'
+    fi
+}
+catalog_id() {
+    { sed -n 's/^versionCode=//p' "$MOD/module.prop"; for f in "$MOD/strategy/"*.sh; do [ ! -f "$f" ] || sha256sum "$f"; done; } | sha256sum | awk '{print $1}'
+}
+version_code() { [ ! -f "$1/module.prop" ] || sed -n 's/^versionCode=//p' "$1/module.prop" | tr -d '\r'; }
+update_in_progress() { [ "$(value "$UPDATE/state")" = installing ] && alive "$UPDATE/owner"; }
+update_state() { printf '%s\n' "$1" > "$UPDATE/state.tmp"; mv "$UPDATE/state.tmp" "$UPDATE/state"; }
+update_status() {
+    state="$(value "$UPDATE/state")"
+    target="$(value "$UPDATE/version")"
+    if [ "$state" = installing ] && ! alive "$UPDATE/owner"; then
+        state="$(value "$UPDATE/state")"
+        if [ "$state" = installing ]; then
+            if [ "$(value "$UPDATE/exit")" = 0 ] && [ -n "$target" ] && [ "$(version_code "$STAGING")" = "$target" ]; then state=pending_reboot
+            else state=interrupted; fi
+        fi
+    fi
+    if [ "$state" = pending_reboot ] && [ "$(value "$UPDATE/boot")" != "$(boot_id)" ]; then
+        if [ -n "$target" ] && [ "$(version_code "$MOD")" = "$target" ] && [ ! -f "$STAGING/module.prop" ]; then state=completed
+        elif [ ! -f "$STAGING/module.prop" ]; then state=failed; fi
+    fi
+    # Also detect an update staged independently in the Magisk app.
+    if { [ -z "$state" ] || [ "$state" = idle ] || [ "$state" = completed ]; } && [ -f "$STAGING/module.prop" ]; then
+        state=pending_reboot; target="$(version_code "$STAGING")"
+    fi
+    field UPDATE_STATE "${state:-idle}"
+    field UPDATE_VERSION "${target:-0}"
+    if [ -f "$STAGING/module.prop" ]; then field UPDATE_STAGED 1; else field UPDATE_STAGED 0; fi
+    printf '@@UPDATE_LOG\n'
+    tail -n 100 "$UPDATE/install.log" 2>/dev/null
+    return 0
+}
+install_update() {
+    require_module; acquire; idle_required
+    package="${1:-}"; target="${2:-}"; digest="${3:-}"
+    case "$target" in ''|*[!0-9]*) fail 'Некорректная версия обновления.' ;; esac
+    case "$digest" in ''|*[!a-f0-9]*) fail 'Некорректная контрольная сумма.' ;; esac
+    [ "${#digest}" = 64 ] || fail 'Некорректная контрольная сумма.'
+    installed="$(version_code "$MOD")"
+    case "$installed" in ''|*[!0-9]*) fail 'Не удалось определить версию установленного модуля.' ;; esac
+    [ "$target" -gt "$installed" ] || fail 'Эта или более новая версия уже установлена.'
+    [ -f "$package" ] || fail 'Файл обновления не найден. Скачайте его заново.'
+    command -v "$MAGISK_BIN" >/dev/null 2>&1 || fail 'Magisk не найден. Установка обновления недоступна.'
+    command -v setsid >/dev/null 2>&1 || fail 'Фоновая установка недоступна на этой приставке.'
+    mkdir -p "$UPDATE" || fail 'Не удалось подготовить обновление.'
+    cp "$package" "$UPDATE/package.tmp" || fail 'Не удалось сохранить файл обновления.'
+    actual="$(sha256sum "$UPDATE/package.tmp" | awk '{print $1}')"
+    [ "$actual" = "$digest" ] || { rm -f "$UPDATE/package.tmp"; fail 'Файл обновления повреждён. Установка отменена.'; }
+    mv "$UPDATE/package.tmp" "$UPDATE/package.zip" || fail 'Не удалось сохранить обновление.'
+    # Keep the complete installed module plus configuration as a private recovery checkpoint.
+    # Retain one checkpoint; it is never uploaded or exposed through intents.
+    tar -czf "$UPDATE/before-update.tmp.tar.gz" -C "$MOD" . || fail 'Не удалось сохранить резервную копию. Установка отменена.'
+    mv "$UPDATE/before-update.tmp.tar.gz" "$UPDATE/before-update.tar.gz" || fail 'Не удалось сохранить резервную копию.'
+    printf '%s\n' "$target" > "$UPDATE/version"
+    printf '%s\n' "$(boot_id)" > "$UPDATE/boot"
+    rm -f "$UPDATE/exit"
+    cp "$0" "$UPDATE/runner.sh" || fail 'Не удалось подготовить установку.'
+    printf 'Сохранена резервная копия Pocket %s. Установка v%s…\n' "$installed" "$target" > "$UPDATE/install.log"
+    update_state installing
+    nohup setsid "$SHELL_BIN" "$UPDATE/runner.sh" run-update >> "$UPDATE/install.log" 2>&1 < /dev/null &
+    runner=$!
+    identity "$runner" > "$UPDATE/owner"
+    sleep 1
+    update_status
+}
+run_update() {
+    identity "$$" > "$UPDATE/owner"
+    # The installer is deliberately detached: closing SV Pocket must not kill Magisk mid-install.
+    "$MAGISK_BIN" --install-module "$UPDATE/package.zip"
+    result=$?
+    printf '%s\n' "$result" > "$UPDATE/exit"
+    printf 'Magisk завершил установку: код %s.\n' "$result"
+    if [ "$result" = 0 ] && [ "$(version_code "$STAGING")" = "$(value "$UPDATE/version")" ]; then
+        update_state pending_reboot
+        printf 'Обновление установлено. Перезагрузите приставку для завершения.\n'
+    else
+        update_state failed
+        printf 'Обновление не завершено. Сохранена резервная копия; подробности выше.\n'
     fi
 }
 catalog() {
@@ -101,9 +185,12 @@ CURL_WRAPPER
 }
 inspect() {
     require_module
+    update_in_progress && fail 'Идёт установка обновления. Дождитесь её завершения.'
     # status also performs Pocket's own layout migration from older releases.
     svc="$("$SHELL_BIN" "$CLI" status 2>/dev/null | tail -n 1)"
     field VERSION "$(sed -n 's/^version=//p' "$MOD/module.prop" | tr -d '\r')"
+    field VERSION_CODE "$(version_code "$MOD")"
+    field CATALOG_ID "$(catalog_id)"
     field SERVICE "$svc"
     field SELECTED "$(value "$MOD/config/current-strategy")"
     field BOOT 1
@@ -128,6 +215,8 @@ poll() {
     field EXIT "$(value "$SESSION/exit")"
     field RESTORE "$(value "$SESSION/restore")"
     field ERROR "$(value "$SESSION/error")"
+    field MODULE_VERSION "$(value "$SESSION/module-version")"
+    field CATALOG_ID "$(value "$SESSION/catalog-id")"
     grep -E '^@@(RESULT|TESTING) ' "$SESSION/test.log" 2>/dev/null || true
     printf '@@LOGTAIL\n'
     tail -n 35 "$SESSION/test.log" 2>/dev/null
@@ -153,6 +242,8 @@ launch_test() {
     printf '%s\n' "$names" | wc -l | tr -d ' ' > "$SESSION/total"
     printf '%s\n' "$2" > "$SESSION/id"
     printf '%s\n' "$profile" > "$SESSION/profile"
+    sed -n 's/^version=//p' "$MOD/module.prop" > "$SESSION/module-version"
+    catalog_id > "$SESSION/catalog-id"
     date +%s > "$SESSION/started"
     cp "$0" "$BASE/runner.sh" || fail 'Не удалось подготовить фоновый запуск.'
     chmod 700 "$BASE/runner.sh"
@@ -235,6 +326,15 @@ run_test() {
 
 [ "$(id -u)" = 0 ] || fail 'Нет root-доступа. Разрешите SV Pocket права суперпользователя в Magisk.'
 case "${1:-}" in
+    update-status) update_status ;;
+    install-update) install_update "$2" "$3" "$4" ;;
+    run-update) run_update ;;
+    reboot-after-update)
+        acquire
+        update_in_progress && fail 'Установка ещё продолжается.'
+        active && fail 'Сначала завершите подбор стратегий.'
+        [ -f "$STAGING/module.prop" ] || fail 'Нет обновления, ожидающего перезагрузки.'
+        reboot ;;
     inspect) inspect ;;
     poll) poll ;;
     log)
@@ -244,6 +344,8 @@ case "${1:-}" in
             printf '\n=== %s ===\n' "$file"
             tail -n 4000 "$SESSION/$file" 2>/dev/null
         done
+        printf '\n=== module-update.log ===\n'
+        tail -n 400 "$UPDATE/install.log" 2>/dev/null
         true ;;
     launch-test)
         command -v setsid >/dev/null 2>&1 || fail 'В системе отсутствует setsid, безопасный фоновый запуск недоступен.'

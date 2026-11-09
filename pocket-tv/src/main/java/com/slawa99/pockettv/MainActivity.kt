@@ -24,16 +24,33 @@ import java.util.Locale
 class MainActivity : Activity() {
     private val app get() = application as PocketApplication
     private val ink = Color.rgb(240, 245, 238)
-    private val muted = Color.rgb(171, 193, 183)
-    private val mint = Color.rgb(168, 231, 202)
-    private val card = Color.rgb(28, 46, 40)
-    private val bg = Color.rgb(16, 25, 24)
+    private val muted = Color.rgb(161, 183, 192)
+    private val mint = Color.rgb(79, 224, 228)
+    private val card = Color.rgb(24, 40, 49)
+    private val bg = Color.rgb(11, 20, 26)
     private lateinit var content: FrameLayout
     private lateinit var status: TextView
     private lateinit var title: TextView
     private val nav = mutableListOf<Button>()
     private val controls = mutableMapOf<String, Button>()
     private var page = 0
+    private var pendingUpdateVersion = 0
+    private val pageNames = listOf("Главная", "Стратегии", "Подбор", "Журнал", "О приложении", "Помощь", "Настройки", "Обновление обхода", "Расширенные настройки")
+    private val backStack = mutableListOf<Int>()
+    private val focusByPage = mutableMapOf<Int, String>()
+    private val selectionByPage = mutableMapOf<Int, Int>()
+    private fun navigationButton() = nav[when (page) { 0 -> 0; 5 -> 1; else -> 2 }]
+    private fun rememberPosition() {
+        (currentFocus?.tag as? String)?.let { focusByPage[page] = it }
+        list?.let { selectionByPage[page] = it.selectedItemPosition.coerceAtLeast(0) }
+    }
+    private fun focusContent() {
+        val remembered = focusByPage[page]?.let { window.decorView.findViewWithTag<View>(it) }
+        if (remembered != null && remembered.visibility == View.VISIBLE && remembered.isEnabled && remembered.requestFocus()) return
+        if (list != null) { list?.requestFocus(); list?.setSelection(selectionByPage[page] ?: 0); return }
+        controls.values.firstOrNull { it.visibility == View.VISIBLE && it.isEnabled }?.requestFocus()
+            ?: window.decorView.findViewWithTag<View>("about_scroll")?.requestFocus()
+    }
     private var info: TextView? = null
     private var subtitle: TextView? = null
     private var progressTitle: TextView? = null
@@ -44,7 +61,7 @@ class MainActivity : Activity() {
     private var journal: TextView? = null
     private val observer: () -> Unit = { render() }
     private val ticker = object : Runnable {
-        override fun run() { if (app.snapshot.active) app.poll(); app.main.postDelayed(this, 3000) }
+        override fun run() { if (app.snapshot.active || app.update.installing) app.poll(); app.main.postDelayed(this, 3000) }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -59,8 +76,8 @@ class MainActivity : Activity() {
         val rail = vertical().apply { setPadding(0, 0, dp(18), 0) }
         rail.addView(brandLogo().apply { tag = "app_name" }, LinearLayout.LayoutParams(-1, dp(30)))
         rail.addView(label(getString(R.string.app_tagline), 12, muted).apply { setPadding(0, dp(5), 0, dp(20)) })
-        listOf("Главная", "Стратегии", "Подбор", "Журнал", "О приложении").forEachIndexed { index, name ->
-            val button = button(name) { showPage(index) }.apply {
+        listOf(0 to "Главная", 5 to "Помощь", 6 to "Настройки").forEach { (index, name) ->
+            val button = button(name) { backStack.clear(); showPage(index, remember = false) }.apply {
                 tag = "nav_$index"; gravity = Gravity.CENTER_VERTICAL or Gravity.START
                 setPadding(dp(12), 0, dp(6), 0)
             }
@@ -86,15 +103,17 @@ class MainActivity : Activity() {
         body.addView(content, LinearLayout.LayoutParams(-1, 0, 1f))
         root.addView(body, LinearLayout.LayoutParams(0, -1, 1f))
         setContentView(root)
-        showPage(savedInstanceState?.getInt("page") ?: 0)
-        nav[page].requestFocus()
+        savedInstanceState?.getIntArray("back_stack")?.let { backStack.addAll(it.toList()) }
+        showPage(if (intent.getBooleanExtra("updates", false)) 7 else savedInstanceState?.getInt("page") ?: 0, remember = false)
+        navigationButton().requestFocus()
     }
     override fun onResume() {
         super.onResume(); app.observe(observer); app.refresh()
+        app.checkUpdates(automatic = true)
         app.main.postDelayed(ticker, 3000)
     }
     override fun onPause() { app.remove(observer); app.main.removeCallbacks(ticker); super.onPause() }
-    override fun onSaveInstanceState(outState: Bundle) { outState.putInt("page", page); super.onSaveInstanceState(outState) }
+    override fun onSaveInstanceState(outState: Bundle) { outState.putInt("page", page); outState.putIntArray("back_stack", backStack.toIntArray()); super.onSaveInstanceState(outState) }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
     private fun vertical() = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -116,8 +135,8 @@ class MainActivity : Activity() {
         if (stroke != null) setStroke(dp(2), stroke)
     }
     private fun focusBackground() = StateListDrawable().apply {
-        addState(intArrayOf(android.R.attr.state_focused), shape(Color.rgb(39, 75, 60), mint))
-        addState(intArrayOf(android.R.attr.state_pressed), shape(Color.rgb(47, 89, 69), mint))
+        addState(intArrayOf(android.R.attr.state_focused), shape(Color.rgb(32, 69, 82), mint))
+        addState(intArrayOf(android.R.attr.state_pressed), shape(Color.rgb(36, 83, 93), mint))
         addState(intArrayOf(android.R.attr.state_enabled), shape(card))
         addState(intArrayOf(), shape(Color.rgb(24, 35, 31)))
     }
@@ -137,48 +156,148 @@ class MainActivity : Activity() {
         isFillViewport = false; clipToPadding = false; setPadding(0, 0, dp(5), dp(4))
         addView(inner, FrameLayout.LayoutParams(-1, -2)); parent.addView(this, ViewGroup.LayoutParams(-1, -1))
     }
-    private fun showPage(index: Int) {
-        page = index.coerceIn(0, 4)
+    private fun showPage(index: Int, remember: Boolean = true) {
+        if (remember && index != page) { rememberPosition(); backStack.add(page) }
+        page = index.coerceIn(0, 8)
         controls.clear(); content.removeAllViews(); info = null; subtitle = null
         progressTitle = null; progressCount = null; progress = null; list = null; adapter = null; journal = null
-        val labels = listOf("Главная", "Стратегии", "Подбор", "Журнал", "О приложении")
-        title.text = labels[page]
-        nav.forEachIndexed { i, b -> b.text = if (i == page) "• ${labels[i]}" else labels[i] }
+        title.text = pageNames[page]
+        nav.forEach { b ->
+            val i = b.tag.toString().substringAfter('_').toInt()
+            b.text = if (b == navigationButton()) "• ${pageNames[i]}" else pageNames[i]
+            b.nextFocusRightId = View.NO_ID
+        }
         when (page) {
             0 -> buildHome()
             1 -> buildStrategies(false)
             2 -> buildStrategies(true)
             3 -> buildJournal()
-            else -> buildAbout()
+            4 -> buildAbout()
+            5 -> buildHelp()
+            6 -> buildSettings()
+            7 -> buildUpdates()
+            else -> buildAdvanced()
         }
         render()
+        val first = controls.values.firstOrNull { it.visibility == View.VISIBLE && it.isEnabled }
+        navigationButton().nextFocusRightId = first?.id ?: list?.id ?: View.NO_ID
+        list?.setSelection(selectionByPage[page] ?: 0)
     }
     private fun buildHome() {
         val body = vertical()
-        info = label("", 18).apply { setPadding(dp(16), dp(16), dp(16), dp(16)); background = shape(card) }
-        body.addView(info, rowParams())
-        addControl(body, "start", "▶  Запустить сервис") { app.control("start") }
-        addControl(body, "stop", "■  Остановить сервис") { app.control("stop") }
-        addControl(body, "restart", "↻  Перезапустить сервис") { app.control("restart") }
-        addControl(body, "open_tests", "Подобрать стратегию из каталога Pocket") { showPage(2); controls["test_youtube"]?.requestFocus() }
-        addControl(body, "refresh", "Обновить состояние / запросить root") { app.refresh() }
-        addControl(body, "youtube", "Открыть YouTube") { openVideo(false) }
-        addControl(body, "smarttube", "Открыть SmartTube") { openVideo(true) }
-        body.addView(label("Автозапуск выполняет сам модуль Pocket при загрузке приставки, если он включён в Magisk. Выбранная стратегия сохраняется в модуле.", 14, muted).apply { setPadding(0, dp(8), 0, dp(8)) })
-        wireVerticalButtons(body)
-        scrolling(content, body)
+        val hero = vertical().apply {
+            setPadding(dp(22), dp(20), dp(22), dp(20))
+            background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(Color.rgb(25, 56, 66), card)).apply { cornerRadius = dp(14).toFloat() }
+        }
+        info = label("", 26, ink, true); hero.addView(info)
+        subtitle = label("", 15, muted).apply { setPadding(0, dp(10), 0, 0) }; hero.addView(subtitle)
+        body.addView(hero, rowParams().apply { bottomMargin = dp(18) })
+        addControl(body, "home_primary", "Открыть YouTube") {
+            when {
+                app.update.blocksChanges -> { showPage(7); focusContent() }
+                app.snapshot.active -> { showPage(2); focusContent() }
+                !app.connected -> { showPage(5); focusContent(); app.diagnose() }
+                app.module.service != "running" -> app.control("start")
+                else -> openVideo(false)
+            }
+        }.apply { textSize = 20f; minimumHeight = dp(62) }
+        addControl(body, "home_help", "YouTube не работает") { showPage(5); focusContent(); app.diagnose() }
+        addControl(body, "home_smarttube", "Открыть SmartTube") { openVideo(true) }
+        addControl(body, "home_test", "Посмотреть ход подбора") { showPage(2); focusContent() }
+        addControl(body, "home_update", "Доступно обновление обхода") { showPage(7); focusContent() }
+        body.addView(label("После настройки обход запускается вместе с приставкой. Включать его каждый раз не нужно, если модуль включён в Magisk.", 13, muted).apply { setPadding(0, dp(12), 0, 0) })
+        wireVerticalButtons(body); scrolling(content, body)
+    }
+    private fun buildHelp() {
+        val body = vertical()
+        info = label("", 23, ink, true); body.addView(info, rowParams())
+        subtitle = label("", 16, muted); body.addView(subtitle, rowParams().apply { bottomMargin = dp(18) })
+        addControl(body, "diagnose", "Проверить подключение и обход") { app.diagnose() }
+        addControl(body, "help_repair", "Перезапустить обход") { app.control(if (app.module.service == "running") "restart" else "start", helpAfter = true) }
+        addControl(body, "help_youtube", "Открыть YouTube и проверить видео") { openVideo(false, feedback = true) }
+        addControl(body, "help_smarttube", "Проверить в SmartTube") { openVideo(true, feedback = true) }
+        addControl(body, "video_yes", "Видео работает — сохранить стратегию") { app.videoWorks() }
+        addControl(body, "video_no", "Проблема осталась") { app.videoFailed() }
+        addControl(body, "next_strategy", "Попробовать следующую стратегию") {
+            app.nextStrategy?.let { confirmApply(it) }
+        }
+        addControl(body, "restore_strategy", "Вернуть последнюю рабочую стратегию") { confirmApply(app.confirmedName) }
+        addControl(body, "help_tests", "Открыть полный подбор стратегий") { showPage(2); focusContent() }
+        addControl(body, "help_update", "Завершить обновление") { showPage(7); focusContent() }
+        addControl(body, "help_setup", "Как настроить первый запуск") { showPage(4); focusContent() }
+        wireVerticalButtons(body); scrolling(content, body)
+    }
+    private fun buildSettings() {
+        val body = vertical()
+        body.addView(label("Обновления и дополнительные возможности", 16, muted), rowParams())
+        addControl(body, "open_updates", "Обновление обхода YouTube") { showPage(7); focusContent() }
+        addControl(body, "auto_update_check", "") { app.automaticUpdateCheck = !app.automaticUpdateCheck }
+        addControl(body, "open_advanced", "Расширенные настройки") { showPage(8); focusContent() }
+        addControl(body, "open_about", "О приложении и первый запуск") { showPage(4); focusContent() }
+        wireVerticalButtons(body); scrolling(content, body)
+    }
+    private fun buildAdvanced() {
+        val body = vertical()
+        body.addView(label("Оригинальные названия стратегий и подробные результаты", 15, muted), rowParams())
+        addControl(body, "open_strategies", "Стратегии") { showPage(1); focusContent() }
+        addControl(body, "open_tests", "Подбор стратегий") { showPage(2); focusContent() }
+        addControl(body, "open_log", "Журнал и диагностика") { showPage(3); focusContent(); app.readLog() }
+        addControl(body, "start", "Включить обход") { app.control("start") }
+        addControl(body, "stop", "Выключить обход") { app.control("stop") }
+        addControl(body, "restart", "Перезапустить обход") { app.control("restart") }
+        addControl(body, "refresh", "Проверить состояние / запросить доступ") { app.refresh() }
+        wireVerticalButtons(body); scrolling(content, body)
+    }
+    private fun buildUpdates() {
+        val body = vertical()
+        info = label("", 23, ink, true); body.addView(info, rowParams())
+        subtitle = label("", 15, muted); body.addView(subtitle, rowParams())
+        progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            progressTintList = ColorStateList.valueOf(mint); indeterminateTintList = ColorStateList.valueOf(mint)
+        }
+        body.addView(progress, LinearLayout.LayoutParams(-1, dp(8)).apply { bottomMargin = dp(10) })
+        progressCount = label("", 14, muted); body.addView(progressCount, rowParams())
+        addControl(body, "check_update", "Проверить обновления") { app.checkUpdates() }
+        addControl(body, "install_update", "Обновить обход") { confirmUpdate() }
+        addControl(body, "reboot_update", "Перезагрузить сейчас") {
+            AlertDialog.Builder(this).setTitle("Перезагрузить приставку?").setMessage("Просмотр видео и другие приложения закроются. Обновление завершится после запуска приставки.")
+                .setNegativeButton("Позже", null).setPositiveButton("Перезагрузить") { _, _ -> app.rebootAfterUpdate() }.show()
+        }
+        addControl(body, "update_later", "Позже — вернуться на главную") { backStack.clear(); showPage(0, remember = false); focusContent() }
+        addControl(body, "update_details", "Подробности установки") { showPage(3); focusContent(); app.readLog() }
+        body.addView(label("SV Pocket проверяет каталог при открытии, не чаще раза в сутки. Установка начинается после вашего подтверждения. После обновления проверьте видео; при необходимости повторите подбор.", 13, muted).apply { setPadding(0, dp(12), 0, 0) })
+        wireVerticalButtons(body); scrolling(content, body)
+    }
+    private fun confirmUpdate() {
+        val r = app.release ?: return
+        AlertDialog.Builder(this).setTitle("Обновить обход до ${r.version}?")
+            .setMessage("Текущая версия: ${app.module.version}.\n\nПриложение скачает модуль, сохранит резервную копию и установит обновление. Не отключайте питание во время установки. Затем потребуется перезагрузка.")
+            .setNegativeButton("Отмена", null).setPositiveButton("Обновить") { _, _ ->
+                pendingUpdateVersion = r.versionCode
+                if (android.os.Build.VERSION.SDK_INT >= 33 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED)
+                    requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 72)
+                else app.startModuleUpdate(r.versionCode)
+            }.show()
+    }
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 72 && pendingUpdateVersion > 0) app.startModuleUpdate(pendingUpdateVersion)
+    }
+    private fun confirmApply(name: String) {
+        AlertDialog.Builder(this).setTitle(name).setMessage("Включить эту стратегию и перезапустить обход? Затем проверьте видео.")
+            .setNegativeButton("Отмена", null).setPositiveButton("Попробовать") { _, _ -> app.control("apply", name, helpAfter = true) }.show()
     }
     private fun wireVerticalButtons(parent: LinearLayout) {
         val buttons = (0 until parent.childCount).mapNotNull { parent.getChildAt(it) as? Button }
         buttons.forEachIndexed { index, button ->
-            button.nextFocusLeftId = nav[page].id
+            button.nextFocusLeftId = navigationButton().id
             button.setOnKeyListener { _, key, event ->
                 if (key != KeyEvent.KEYCODE_DPAD_DOWN && key != KeyEvent.KEYCODE_DPAD_UP) false
                 else {
                     if (event.action == KeyEvent.ACTION_DOWN) {
                         val step = if (key == KeyEvent.KEYCODE_DPAD_DOWN) 1 else -1
                         var target = index + step
-                        while (target in buttons.indices && !buttons[target].isEnabled) target += step
+                        while (target in buttons.indices && (!buttons[target].isEnabled || buttons[target].visibility != View.VISIBLE)) target += step
                         if (target in buttons.indices) buttons[target].requestFocus()
                     }
                     true
@@ -206,7 +325,7 @@ class MainActivity : Activity() {
             body.addView(actions, rowParams())
         } else {
             val b = addControl(body, "open_tests", "Подбор по всему каталогу Pocket") { showPage(2); controls["test_youtube"]?.requestFocus() }
-            b.nextFocusLeftId = nav[page].id
+            b.nextFocusLeftId = navigationButton().id
         }
         subtitle = label("", 14, muted).apply { maxLines = 3; ellipsize = TextUtils.TruncateAt.END }
         body.addView(subtitle, rowParams())
@@ -220,14 +339,14 @@ class MainActivity : Activity() {
                 addState(intArrayOf(), shape(Color.TRANSPARENT))
             }
             setDrawSelectorOnTop(true)
-            nextFocusLeftId = nav[page].id
+            nextFocusLeftId = navigationButton().id
         }
         adapter = StrategyAdapter()
         lv.adapter = adapter
         lv.setOnItemClickListener { _, _, position, _ -> adapter?.rows?.getOrNull(position)?.let { showStrategy(it) } }
         // Explicit return to section navigation; ListView handles ↑/↓ and autoscroll.
         lv.setOnKeyListener { _, key, event ->
-            if (key == KeyEvent.KEYCODE_DPAD_LEFT && event.action == KeyEvent.ACTION_DOWN) { nav[page].requestFocus(); true } else false
+            if (key == KeyEvent.KEYCODE_DPAD_LEFT && event.action == KeyEvent.ACTION_DOWN) { navigationButton().requestFocus(); true } else false
         }
         list = lv
         body.addView(lv, LinearLayout.LayoutParams(-1, 0, 1f))
@@ -246,7 +365,7 @@ class MainActivity : Activity() {
         journal = label("", 13, muted).apply { typeface = Typeface.MONOSPACE; setPadding(dp(10), dp(10), dp(10), dp(10)); background = shape(card) }
         val scroll = ScrollView(this).apply {
             tag = "log_scroll"; isFocusable = true; isFocusableInTouchMode = true; background = focusBackground()
-            addView(journal, FrameLayout.LayoutParams(-1, -2)); nextFocusLeftId = nav[page].id
+            addView(journal, FrameLayout.LayoutParams(-1, -2)); nextFocusLeftId = navigationButton().id
         }
         body.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         content.addView(body, FrameLayout.LayoutParams(-1, -1))
@@ -255,56 +374,140 @@ class MainActivity : Activity() {
         val body = vertical()
         body.addView(brandLogo(), LinearLayout.LayoutParams(dp(210), dp(38)).apply { bottomMargin = dp(8) })
         body.addView(label("Приложение от мастера Святослава для удобной настройки обхода на Android TV.", 16, mint), rowParams())
-        body.addView(label("Для первого запуска:\n1. Установите модуль Zapret Pocket через Magisk и перезагрузите приставку.\n2. Разрешите SV Pocket права суперпользователя.\n3. Откройте «Подбор» и запустите проверку каталога.\n4. Выберите результат: приложение сохранит стратегию и перезапустит сервис.", 16), rowParams())
-        body.addView(label("Каталог читается из установленного модуля. Отдельно скачивать стратегии не нужно. Совместимость команд проверена по исходникам Pocket v71; ранние версии без маркеров результатов потребуется обновить.\n\nПодбор может длиться несколько часов. Закрытие приложения его не останавливает; перезагрузка приставки прерывает проверку. Частичные результаты сохраняются. После проверки возвращается прежнее состояние сервиса.\n\nНе запускайте одновременно второй модуль Zapret или тестер в терминале/WebUI. При смене провайдера запустите новый подбор: сохранённая оценка относится к предыдущей проверке.\n\nРейтинг основан на ответах сетевых проб Pocket. Дополнительные проверки модуля доступны в журнале. Встроенного теста воспроизведения ролика здесь нет; проверьте выбранный вариант в YouTube или SmartTube.\n\nПриложение не является официальным клиентом sevcator. Оно не устанавливает и не обновляет root-модуль автоматически.", 14, muted), rowParams())
+        body.addView(label("Для первого запуска:\n1. Установите модуль Zapret Pocket через Magisk и перезагрузите приставку.\n2. Разрешите SV Pocket права суперпользователя.\n3. Откройте «Настройки → Расширенные настройки → Подбор» и запустите проверку каталога.\n4. Выберите результат: приложение сохранит стратегию и перезапустит сервис.", 16), rowParams())
+        body.addView(label("Каталог читается из установленного модуля. Отдельно скачивать стратегии не нужно. Команды сверены с исходниками Pocket v71 и v72; ранние версии без маркеров результатов потребуется обновить.\n\nПодбор может длиться несколько часов. Закрытие приложения его не останавливает; перезагрузка приставки прерывает проверку. Частичные результаты сохраняются. После проверки возвращается прежнее состояние сервиса.\n\nНе запускайте одновременно второй модуль Zapret или тестер в терминале/WebUI. При смене провайдера запустите новый подбор: сохранённая оценка относится к предыдущей проверке.\n\nРейтинг основан на ответах сетевых проб Pocket. Дополнительные проверки модуля доступны в журнале. Встроенного теста воспроизведения ролика здесь нет; проверьте выбранный вариант в YouTube или SmartTube.\n\nОбновить установленный модуль можно в разделе «Настройки → Обновление обхода». Установка начинается после подтверждения и завершается перезагрузкой. Приложение не является официальным клиентом sevcator.", 14, muted), rowParams())
         scrolling(content, body).apply {
             tag = "about_scroll"; isFocusable = true; isFocusableInTouchMode = true
-            nextFocusLeftId = nav[page].id
+            nextFocusLeftId = navigationButton().id
         }
     }
     private fun render() {
         if (!::content.isInitialized) return
-        val restorationFailed = app.snapshot.restore == "failed" && app.module.service != "running"
+        val m = app.module; val s = app.snapshot; val u = app.update; val r = app.release
+        val idle = app.busy.isEmpty() && !app.updateRequested
+        val canControl = app.changesAllowed && m.error.isEmpty()
+        val awaiting = app.awaitingVideo
         status.text = when {
             app.busy.isNotEmpty() -> app.busy
-            app.error.isNotEmpty() -> "${app.error}\nOK — подробности"
-            restorationFailed -> "Pocket не смог восстановить сервис. Откройте журнал и нажмите «Перезапустить сервис»."
-            app.notice.isNotEmpty() -> app.notice
-            app.connected -> "Pocket ${app.module.version}  ·  сервис ${app.serviceLabel(app.module.service)}"
-            else -> "Для управления требуется Zapret Pocket и разрешение Magisk"
+            app.error.isNotEmpty() -> "Не удалось выполнить действие. OK — подробности"
+            u.installing -> "Обновление устанавливается. Не отключайте питание приставки."
+            u.pending && page != 7 -> "Обновление готово. Завершите его в разделе «Обновление обхода»."
+            s.restore == "failed" && m.service != "running" -> "Обход не восстановился после подбора. Откройте помощь."
+            else -> app.notice
         }
-        status.setTextColor(if (app.error.isNotEmpty() || restorationFailed) Color.rgb(255, 199, 164) else muted)
+        status.visibility = if (status.text.isEmpty()) View.GONE else View.VISIBLE
+        status.setTextColor(if (app.error.isNotEmpty()) Color.rgb(255, 199, 164) else muted)
         status.isFocusable = app.error.isNotEmpty(); status.isClickable = app.error.isNotEmpty()
-        val m = app.module; val s = app.snapshot
-        val idle = app.busy.isEmpty()
-        val canControl = idle && app.connected && m.error.isEmpty() && !s.active
+        fun visible(key: String, value: Boolean) { controls[key]?.visibility = if (value) View.VISIBLE else View.GONE }
         controls.forEach { (key, b) ->
             b.isEnabled = when (key) {
-                "start", "stop", "restart" -> canControl
+                "start", "stop", "restart", "help_repair" -> canControl
                 "test_youtube", "test_all" -> canControl && m.compatible && m.strategies.isNotEmpty()
                 "cancel" -> idle && s.active && s.status !in setOf("restoring", "cancelling")
-                "refresh", "read_log" -> idle
+                "refresh", "read_log", "diagnose" -> idle && !u.installing
+                "video_yes" -> canControl && m.service == "running" && m.selected.isNotEmpty()
+                "video_no" -> idle
+                "next_strategy" -> canControl && app.nextStrategy != null
+                "restore_strategy" -> canControl && app.canRestore
+                "check_update" -> !app.checkingUpdates && !app.updateRequested && !u.installing
+                "install_update" -> canControl && r != null && r.versionCode > m.versionCode && r.minAppVersion <= BuildConfig.VERSION_CODE
+                "reboot_update" -> idle && u.pending && !s.active
+                "home_primary", "home_help" -> idle
                 else -> true
             }
         }
-        info?.text = if (app.connected) "Zapret Pocket ${m.version}\nСервис: ${app.serviceLabel(m.service)}\nВыбрана: ${m.selected.ifEmpty { "не задана" }}\nВ каталоге: ${m.strategies.size} стратегий" +
-            if (s.active) "\nИдёт подбор: ${s.completed} из ${s.total}" else ""
-            else "Zapret Pocket ещё не подключён\nНажмите «Обновить состояние» и разрешите root в Magisk. Если модуль не установлен, откройте раздел «О приложении»."
-        progressTitle?.text = s.headline()
-        progress?.apply {
-            isIndeterminate = s.status in setOf("starting", "restoring", "cancelling")
-            max = maxOf(1, s.total); progress = s.completed
+        controls["auto_update_check"]?.text = "Проверять обновления при открытии: " + if (app.automaticUpdateCheck) "включено" else "выключено"
+        if (page == 0) {
+            info?.text = when {
+                u.pending -> "Обновление готово"
+                u.installing || app.updateRequested -> "Обновляем обход"
+                s.active -> "Идёт подбор стратегий"
+                !app.connected && !idle -> "Проверяем обход…"
+                !app.connected -> "Нужно настроить обход"
+                m.service == "running" -> "Обход включён"
+                m.service == "stopped" -> "Обход выключен"
+                else -> "Обходу нужна помощь"
+            }
+            subtitle?.text = when {
+                u.pending -> "Перезагрузите приставку, чтобы завершить установку."
+                s.active -> "Обработано ${s.completed} из ${s.total}. Можно открыть ход проверки."
+                !app.connected -> "Нажмите «Настроить обход» — приложение подскажет следующий шаг."
+                else -> "Стратегия: ${m.selected.ifEmpty { "не выбрана" }}\n" +
+                    if (app.selectedConfirmed) "Вы подтвердили видео ${formatTime(app.confirmedAt / 1000)}. При смене сети проверьте снова."
+                    else "Воспроизведение видео ещё не подтверждено."
+            }
+            controls["home_primary"]?.text = when {
+                u.blocksChanges -> "Завершить обновление"
+                s.active -> "Посмотреть ход подбора"
+                !app.connected -> "Настроить обход"
+                m.service != "running" -> "Включить обход"
+                else -> "Открыть YouTube"
+            }
+            visible("home_test", false)
+            visible("home_update", u.pending || r != null && r.versionCode > m.versionCode && app.connected)
         }
-        progressCount?.text = if (s.id.isEmpty()) "Доступно ${m.strategies.size} стратегий. Проверяется весь каталог модуля."
-            else "Обработано ${s.completed} из ${s.total}  ·  пропущено ${s.results.count { it.status == "SKIP" }}  ·  ${if (s.profile == "youtube") "YouTube" else "все сервисы"}  ·  ${formatTime(s.started)}"
-        subtitle?.text = when {
-            !app.connected && s.id.isEmpty() -> "Подключите модуль на главной странице."
-            page == 2 && !m.compatible && app.connected -> "Для прогресса и результатов требуется новая версия Pocket. Обновите модуль (проверено с v71)."
-            s.id.isEmpty() -> "Выберите стратегию или запустите подбор. Список загружается из установленного Pocket."
-            else -> "Рейтинг сохранён до нового подбора. Баллы — ответы сетевых проб, воспроизведение видео не проверено. OK на строке — выбор и перезапуск."
+        if (page == 5) {
+            info?.text = if (awaiting) "Удалось посмотреть видео?" else app.help.title
+            subtitle?.text = (if (awaiting) "Выберите результат проверки. Он сохранится отдельно от сетевых баллов." else app.help.detail) +
+                if (app.connected && m.selected.isNotEmpty()) "\nСтратегия: ${m.selected}" else ""
+            controls["diagnose"]?.text = if (app.help.offline) "Проверить ещё раз" else "Проверить подключение и обход"
+            controls["help_repair"]?.text = if (m.service == "running") "Перезапустить обход" else "Включить обход"
+            val ready = (app.help.ready || awaiting) && app.connected && !s.active && !u.blocksChanges
+            visible("diagnose", !awaiting || !ready)
+            visible("help_repair", ready && !awaiting && !app.helpAlternatives)
+            visible("help_youtube", ready)
+            visible("help_smarttube", ready)
+            visible("video_yes", awaiting && ready)
+            visible("video_no", awaiting && ready)
+            visible("next_strategy", ready && app.helpAlternatives)
+            visible("restore_strategy", ready && app.helpAlternatives && app.canRestore)
+            visible("help_tests", s.active || ready && app.helpAlternatives)
+            visible("help_update", u.blocksChanges)
+            visible("help_setup", !app.connected && !app.help.offline)
+            controls["next_strategy"]?.text = app.nextStrategy?.let { "Попробовать: $it" } ?: "Других стратегий нет — откройте подбор"
+            controls["restore_strategy"]?.text = "Вернуть рабочую: ${app.confirmedName}"
         }
-        updateRows()
-        journal?.text = app.diagnosticText()
+        if (page == 1 || page == 2) {
+            progressTitle?.text = s.headline()
+            progress?.apply { isIndeterminate = s.status in setOf("starting", "restoring", "cancelling"); max = maxOf(1, s.total); progress = s.completed }
+            progressCount?.text = if (s.id.isEmpty()) "Доступно ${m.strategies.size} стратегий. Проверяется весь каталог модуля."
+                else "Обработано ${s.completed} из ${s.total}  ·  пропущено ${s.results.count { it.status == "SKIP" }}  ·  ${formatTime(s.started)}"
+            subtitle?.text = when {
+                !app.connected && s.id.isEmpty() -> "Откройте помощь и подключите модуль."
+                !m.compatible && app.connected -> "Эта версия модуля не поддерживает результаты подбора для приложения."
+                s.id.isEmpty() -> "Названия стратегий сохранены из каталога Pocket. Выберите стратегию или запустите подбор."
+                !s.matches(m) -> "Сохранены прежние результаты (${s.moduleVersion.ifEmpty { "версия не записана" }}). Каталог изменился или не был записан — для актуальной оценки повторите подбор."
+                else -> "Рейтинг сохранён. Баллы относятся к сетевым проверкам; видео проверяется отдельно. OK — выбрать стратегию."
+            }
+        }
+        if (page == 7) {
+            info?.text = when {
+                app.updateRequested || u.installing -> "Обновление устанавливается"
+                u.pending -> "Осталась перезагрузка"
+                u.phase in setOf("failed", "interrupted") -> "Обновление не завершено"
+                !app.connected -> "Сначала подключите обход"
+                r != null && r.minAppVersion > BuildConfig.VERSION_CODE -> "Сначала обновите SV Pocket"
+                r != null && r.versionCode > m.versionCode -> "Доступно обновление ${r.version}"
+                else -> "Установлена актуальная версия"
+            }
+            subtitle?.text = "Установлено: ${m.version.ifEmpty { "не определено" }}" +
+                (if (r != null) "  ·  В каталоге: ${r.version}" else "") + "\n\n" + when {
+                    u.pending -> "Настройки сохранены. Новая версия начнёт работать после перезагрузки."
+                    u.phase in setOf("failed", "interrupted") -> "Откройте подробности установки. Если перезагрузка уже была, проверьте состояние модуля. Резервная копия сохранена на приставке."
+                    else -> r?.notes.orEmpty()
+                }
+            progress?.apply { visibility = if (app.updateRequested || u.installing) View.VISIBLE else View.GONE; max = 100; isIndeterminate = app.updateProgress < 0; progress = app.updateProgress.coerceAtLeast(0) }
+            progressCount?.text = if (app.updateRequested) app.busy else app.updateMessage
+            visible("install_update", !u.blocksChanges && r != null && r.versionCode > m.versionCode)
+            visible("reboot_update", u.pending)
+            visible("update_later", u.pending)
+            visible("update_details", u.phase != "idle" || app.error.isNotEmpty())
+        }
+        updateRows(); journal?.text = app.diagnosticText()
+        val focused = currentFocus
+        if (focused != null && !nav.contains(focused) && (focused.visibility != View.VISIBLE || !focused.isEnabled)) {
+            controls.values.firstOrNull { it.visibility == View.VISIBLE && it.isEnabled }?.requestFocus() ?: navigationButton().requestFocus()
+        }
     }
     private fun formatTime(seconds: Long): String = if (seconds == 0L) "" else SimpleDateFormat("dd.MM HH:mm", Locale.getDefault()).format(Date(seconds * 1000))
     private data class Row(val name: String, val result: ProbeResult? = null)
@@ -353,13 +556,14 @@ class MainActivity : Activity() {
         val available = row.name in app.module.strategies
         val message = buildString {
             append(row.result?.description() ?: "Стратегия не проверена в последнем подборе.")
+            if (row.result != null && !app.snapshot.matches(app.module)) append("\nЭто результат прежнего каталога. Требуется новая проверка.")
             append("\n\nПосле выбора Pocket сохранит стратегию и перезапустит сервис. Затем откройте YouTube или SmartTube для проверки видео.")
             if (!available) append("\n\nВ текущем каталоге этой стратегии нет. Результат сохранён от предыдущей версии модуля.")
             if (app.snapshot.active) append("\n\nСначала остановите подбор и дождитесь восстановления сервиса.")
         }
         val dialog = AlertDialog.Builder(this).setTitle(row.name).setMessage(message)
             .setNegativeButton("Закрыть", null)
-        if (available && !app.snapshot.active && app.busy.isEmpty()) {
+        if (available && app.changesAllowed) {
             dialog.setPositiveButton("Выбрать и перезапустить") { _, _ -> app.control("apply", row.name) }
         }
         dialog.show()
@@ -391,24 +595,26 @@ class MainActivity : Activity() {
         try { startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, app.diagnosticText().takeLast(180000)), "Отправить журнал SV Pocket")) }
         catch (_: Exception) { Toast.makeText(this, "На приставке нет приложения для отправки. Используйте «Скопировать».", Toast.LENGTH_LONG).show() }
     }
-    private fun openVideo(smart: Boolean) {
+    private fun openVideo(smart: Boolean, feedback: Boolean = false) {
         val names = if (smart) listOf("com.teamsmart.videomanager.tv", "com.teamsmart.videomanager.tv.beta")
             else listOf("com.google.android.youtube.tv", "com.google.android.youtube")
         val intent = names.firstNotNullOfOrNull { packageManager.getLeanbackLaunchIntentForPackage(it) ?: packageManager.getLaunchIntentForPackage(it) }
         if (intent == null) Toast.makeText(this, "${if (smart) "SmartTube" else "YouTube"} не найден. Откройте его из меню приставки.", Toast.LENGTH_LONG).show()
-        else try { startActivity(intent) } catch (e: Exception) { Toast.makeText(this, e.message, Toast.LENGTH_LONG).show() }
+        else try { if (feedback) app.videoOpened(); startActivity(intent) } catch (e: Exception) { Toast.makeText(this, e.message, Toast.LENGTH_LONG).show() }
     }
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && nav.contains(currentFocus)) { focusContent(); return true }
         if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT && !nav.contains(currentFocus)) {
-            nav[page].requestFocus(); return true
+            navigationButton().requestFocus(); return true
         }
         return super.onKeyDown(keyCode, event)
     }
     @Deprecated("TV back navigation")
     override fun onBackPressed() {
         when {
-            !nav.contains(currentFocus) -> nav[page].requestFocus()
-            page != 0 -> { showPage(0); nav[0].requestFocus() }
+            backStack.isNotEmpty() -> { rememberPosition(); val previous = backStack.removeAt(backStack.lastIndex); showPage(previous, remember = false); focusContent() }
+            page != 0 -> { showPage(0, remember = false); nav[0].requestFocus() }
+            !nav.contains(currentFocus) -> navigationButton().requestFocus()
             else -> super.onBackPressed()
         }
     }

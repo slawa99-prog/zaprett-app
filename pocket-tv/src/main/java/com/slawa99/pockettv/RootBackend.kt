@@ -12,6 +12,9 @@ interface PocketBackend {
     fun command(command: String, argument: String = ""): String
     fun launch(profile: String): String
     fun log(): String
+    fun updateStatus(): ModuleUpdateState = ModuleUpdateState()
+    fun installUpdate(file: File, release: ModuleRelease): String = error("Обновление недоступно")
+    fun reboot(): String = error("Перезагрузка недоступна")
 }
 
 class RootBackend(private val context: Context) : PocketBackend {
@@ -34,6 +37,10 @@ class RootBackend(private val context: Context) : PocketBackend {
         return run("launch-test", profile, UUID.randomUUID().toString(), timeout = 45, native = NativeRuntime.prepare(context))
     }
     override fun log(): String = run("log", timeout = 30)
+    override fun updateStatus() = ModuleUpdateState.parse(run("update-status", timeout = 25))
+    override fun installUpdate(file: File, release: ModuleRelease): String = run(
+        "install-update", file.absolutePath, release.versionCode.toString(), release.sha256, timeout = 65)
+    override fun reboot(): String = run("reboot-after-update", timeout = 15)
 
     private fun run(vararg args: String, timeout: Long, native: NativeInputs? = null): String {
         check(android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) { "Root operation on UI thread" }

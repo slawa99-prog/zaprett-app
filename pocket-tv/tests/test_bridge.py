@@ -5,6 +5,8 @@ import subprocess
 import tempfile
 import time
 import unittest
+import hashlib
+import tarfile
 
 BRIDGE = pathlib.Path(__file__).resolve().parents[1] / 'src/main/assets/pocket_bridge.sh'
 FAKE = r'''#!/bin/sh
@@ -46,7 +48,7 @@ class BridgeTest(unittest.TestCase):
         self.mod = self.base / 'module'
         for directory in ['system/bin', 'config', 'strategy']:
             (self.mod / directory).mkdir(parents=True)
-        (self.mod / 'module.prop').write_text('id=zapret\nauthor=sevcator\nversion=v71\n')
+        (self.mod / 'module.prop').write_text('id=zapret\nauthor=sevcator\nversion=v71\nversionCode=71\n')
         (self.mod / 'system/bin/zapret').write_text(FAKE)
         (self.mod / 'common.sh').write_text(COMMON)
         native = self.base / 'curl-native'
@@ -59,7 +61,7 @@ class BridgeTest(unittest.TestCase):
         self.names = ['general', "name's special $thing"]
         for name in self.names:
             (self.mod / 'strategy' / (name + '.sh')).write_text('# strategy\n')
-        self.env = dict(os.environ, POCKET_TV_MODULE=str(self.mod), POCKET_TV_BASE=str(self.base / 'data'), POCKET_TV_SHELL='/bin/sh', POCKET_TV_CURL_SOURCE=str(native), POCKET_TV_CA_SOURCE=str(certificates))
+        self.env = dict(os.environ, POCKET_TV_STAGING=str(self.base / 'staging'), POCKET_TV_MODULE=str(self.mod), POCKET_TV_BASE=str(self.base / 'data'), POCKET_TV_SHELL='/bin/sh', POCKET_TV_CURL_SOURCE=str(native), POCKET_TV_CA_SOURCE=str(certificates))
 
     def tearDown(self):
         # A failed assertion must not leak the detached runner.
@@ -168,6 +170,66 @@ class BridgeTest(unittest.TestCase):
         self.assertEqual('running', (self.mod / 'state').read_text().strip())
         self.assertIn('missing dependency', self.call('log').stdout)
         self.assertIn('curl 8.22.0', subprocess.check_output([str(self.base / 'data/runtime/curl'), '--version'], text=True))
+
+class UpdateBridgeTest(BridgeTest):
+    # Only run update-specific cases in this subclass.
+    def test_update_is_detached_preserves_backup_and_requires_reboot(self):
+        package = self.base / 'pocket.zip'; package.write_bytes(b'fixture archive')
+        magisk = self.base / 'magisk'
+        magisk.write_text('\n'.join([
+            '#!/bin/sh', 'sleep 2',
+            'mkdir -p "$POCKET_TV_STAGING"',
+            'printf "id=zapret\\nversion=v72\\nversionCode=72\\nauthor=sevcator\\n" > "$POCKET_TV_STAGING/module.prop"',
+            'echo installed > "$POCKET_TV_MODULE/installer-called"', 'exit 0', ''
+        ])); magisk.chmod(0o700)
+        self.env['POCKET_TV_MAGISK'] = str(magisk)
+        digest = hashlib.sha256(package.read_bytes()).hexdigest()
+        self.call('install-update', str(package), '72', digest)
+        self.assertNotEqual(0, self.call('apply', 'general', check=False).returncode)
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            status = self.call('update-status').stdout
+            if '@@UPDATE_STATE pending_reboot' in status: break
+            time.sleep(.1)
+        self.assertIn('@@UPDATE_STATE pending_reboot', status)
+        self.assertNotEqual(0, self.call('launch-test', 'youtube', 'blocked', check=False).returncode)
+        self.assertNotEqual(0, self.call('install-update', str(package), '72', digest, check=False).returncode)
+        self.assertEqual('general', (self.mod / 'config/current-strategy').read_text().strip())
+        with tarfile.open(self.base / 'data/update/before-update.tar.gz') as archive:
+            self.assertEqual(b'general\n', archive.extractfile('./config/current-strategy').read())
+        (self.mod / 'module.prop').write_text((self.base / 'staging/module.prop').read_text())
+        (self.base / 'staging/module.prop').unlink()
+        (self.base / 'data/update/boot').write_text('previous-boot')
+        self.assertIn('@@UPDATE_STATE completed', self.call('update-status').stdout)
+
+    def test_bad_digest_and_downgrade_never_invoke_installer(self):
+        package = self.base / 'pocket.zip'; package.write_bytes(b'fixture')
+        magisk = self.base / 'magisk'; magisk.write_text('#!/bin/sh\ntouch "$POCKET_TV_MODULE/installer-called"\n'); magisk.chmod(0o700)
+        self.env['POCKET_TV_MAGISK'] = str(magisk)
+        self.assertNotEqual(0, self.call('install-update', str(package), '72', '0' * 64, check=False).returncode)
+        digest = hashlib.sha256(package.read_bytes()).hexdigest()
+        self.assertNotEqual(0, self.call('install-update', str(package), '71', digest, check=False).returncode)
+        self.assertFalse((self.mod / 'installer-called').exists())
+        self.assertEqual('running', (self.mod / 'state').read_text().strip())
+
+    def test_failed_installer_is_not_reported_as_ready_to_reboot(self):
+        package = self.base / 'pocket.zip'; package.write_bytes(b'fixture')
+        magisk = self.base / 'magisk'
+        magisk.write_text('#!/bin/sh\nmkdir -p "$POCKET_TV_STAGING"\nprintf "versionCode=72\\n" > "$POCKET_TV_STAGING/module.prop"\nexit 7\n'); magisk.chmod(0o700)
+        self.env['POCKET_TV_MAGISK'] = str(magisk)
+        self.call('install-update', str(package), '72', hashlib.sha256(package.read_bytes()).hexdigest())
+        self.assertIn('@@UPDATE_STATE failed', self.call('update-status').stdout)
+
+    def test_catalog_change_invalidates_previous_fingerprint(self):
+        before = next(x for x in self.call('inspect').stdout.splitlines() if x.startswith('@@CATALOG_ID '))
+        (self.mod / 'strategy/general.sh').write_text('# changed strategy\n')
+        after = next(x for x in self.call('inspect').stdout.splitlines() if x.startswith('@@CATALOG_ID '))
+        self.assertNotEqual(before, after)
+
+# Avoid rerunning the inherited lifecycle suite in the subclass.
+for name in list(BridgeTest.__dict__):
+    if name.startswith('test_') and name not in UpdateBridgeTest.__dict__:
+        setattr(UpdateBridgeTest, name, None)
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

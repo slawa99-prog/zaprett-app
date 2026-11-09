@@ -2,6 +2,8 @@
 set -u
 adb shell settings put system accelerometer_rotation 0
 adb shell settings put system user_rotation 0
+adb shell wm size 1920x1080
+adb shell wm density 320
 cd pocket-tv || exit 1
 result=0
 ../gradlew connectedDebugAndroidTest || result=$?

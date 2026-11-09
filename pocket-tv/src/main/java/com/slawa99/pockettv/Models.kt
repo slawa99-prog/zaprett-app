@@ -3,7 +3,8 @@ package com.slawa99.pockettv
 data class ModuleInfo(
     val version: String = "", val service: String = "unknown", val selected: String = "",
     val strategies: List<String> = emptyList(), val compatible: Boolean = false,
-    val error: String = "", val bootEnabled: Boolean = false
+    val error: String = "", val bootEnabled: Boolean = false,
+    val versionCode: Int = 0, val catalogId: String = ""
 )
 
 data class ProbeResult(
@@ -23,8 +24,10 @@ data class TestSnapshot(
     val id: String = "", val status: String = "idle", val total: Int = 0,
     val current: String = "", val started: Long = 0, val profile: String = "youtube",
     val results: List<ProbeResult> = emptyList(), val tail: String = "", val exitCode: String = "",
-    val restore: String = "", val failure: String = ""
+    val restore: String = "", val failure: String = "",
+    val moduleVersion: String = "", val catalogId: String = ""
 ) {
+    fun matches(module: ModuleInfo) = catalogId.isNotEmpty() && catalogId == module.catalogId
     val active get() = status in setOf("starting", "running", "restoring", "cancelling")
     val completed get() = results.size
     val ranked get() = results.sortedWith(compareByDescending<ProbeResult> { it.fraction }
@@ -55,7 +58,9 @@ object PocketProtocol {
         fun field(key: String) = lines.firstOrNull { it.startsWith("@@$key ") }?.substringAfter(' ').orEmpty()
         return ModuleInfo(field("VERSION"), field("SERVICE"), field("SELECTED"),
             lines.filter { it.startsWith("@@STRATEGY ") }.map { it.substringAfter(' ') }.filter(::safeName).distinct().sorted(),
-            field("COMPATIBLE") == "1", field("ERROR"), field("BOOT") == "1")
+            field("COMPATIBLE") == "1", field("ERROR"), field("BOOT") == "1",
+            field("VERSION_CODE").toIntOrNull() ?: field("VERSION").removePrefix("v").toIntOrNull() ?: 0,
+            field("CATALOG_ID"))
     }
     fun test(output: String): TestSnapshot {
         val main = output.substringBefore("@@LOGTAIL\n").replace(ansi, "")
@@ -73,7 +78,7 @@ object PocketProtocol {
         return TestSnapshot(field("ID"), field("STATE").ifEmpty { "idle" }, total,
             field("TESTING"), field("STARTED").toLongOrNull() ?: 0, field("PROFILE").ifEmpty { "youtube" },
             results.values.toList(), output.substringAfter("@@LOGTAIL\n", "").replace(ansi, "").takeLast(16000),
-            field("EXIT"), field("RESTORE"), field("ERROR").take(220))
+            field("EXIT"), field("RESTORE"), field("ERROR").take(220), field("MODULE_VERSION"), field("CATALOG_ID"))
     }
     fun shellQuote(value: String): String = "'" + value.replace("'", "'\\''") + "'"
 }

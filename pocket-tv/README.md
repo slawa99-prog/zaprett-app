@@ -53,3 +53,64 @@ cd pocket-tv && ../gradlew testDebugUnitTest assembleDebug
 ```
 
 Проверки: unit-тесты парсинга и рейтинга; интеграционные тесты реального shell-моста; воспроизведение ошибки оригинального curl v71 и проверка резерва через настоящий resolver Pocket на Android 14; HTTPS с TLS 1.2/1.3 и отклонением недоверенного сертификата; тест кнопок пульта, сохранения результатов и сообщений об ошибке. Тестовый модуль не меняет firewall. Реальное ядро приставки, Magisk, NFQUEUE и работа видео требуют проверки на устройстве.
+
+## SV Pocket 1.1.0
+
+The main navigation is Home, Help and Settings. Home distinguishes a running bypass
+from user-confirmed video playback. Help checks connectivity and the module, offers
+restart, opens YouTube/SmartTube, records a user's playback confirmation, and can try
+the next strategy or restore the last confirmed strategy in the same catalog.
+Strategy names remain exactly as supplied by Pocket. The catalog, full tester,
+manual controls and log are in Settings → Advanced settings. Back returns to the
+previous screen and restores its focus; all actions support a TV remote.
+
+The root bridge reports a fingerprint of the installed strategy files. Test sessions
+persist their module version/fingerprint. Older results remain visible but are labelled
+as historical when the catalog changes. They are not used as fresh recommendations.
+Old 1.0.x history with no fingerprint is preserved and explicitly requires rechecking.
+
+### Updating the installed module
+
+Settings → Update bypass checks the signed release channel, downloads the official
+sevcator ZIP, verifies its pinned SHA-256, size, module identity and ZIP structure,
+and asks for confirmation. The root bridge repeats the checksum after copying to a
+private directory, saves a complete pre-update module archive, then launches
+`magisk --install-module` in a detached session. It does not implement its own Magisk
+installer. Pocket's installer migrates its own configuration. Closing the activity
+must not interrupt installation. A foreground notification covers download/install.
+
+After Magisk stages the update, the UI offers Reboot now or Later. Reboot is never
+automatic. After the next boot the bridge checks the actual installed version before
+reporting completion. A failed installer is not treated as a successful update even
+if it left a staging directory; the log remains available and further changes are
+blocked while staged files remain. Initial module installation and Magisk/root
+installation are outside this updater's scope.
+
+Automatic *checking* runs when the app opens, at most once per 24 hours, and can be
+disabled. There is no unattended installation or background polling when the app is
+closed. A cached authenticated catalog (including v72 in this APK) remains available
+if GitHub is unreachable. APK updates remain a separate SV Store operation.
+
+### Publishing a reviewed module version
+
+`updates/stable.json` is the signed channel served from this repository's
+`feature/pocket-tv` branch. Only explicitly published releases are offered; the
+updater never blindly installs the upstream latest release. `updates/release.json`
+is the human-readable source. Before promotion, inspect upstream changes, verify
+the official asset digest/size and test on the intended TV firmware/provider.
+
+The app embeds only an RSA public key. To publish, update `release.json`, then run
+`scripts/sign-module-catalog.py` with the private delivery keystore and password
+file supplied via their paths, outside the repository. Signatures cover the exact
+payload bytes, including version, minimum app version, URL, digest and size. The
+private key/password must never be committed. Future channels can require a newer
+SV Pocket build via `minAppVersionCode`. Update the bundled catalog/public key only
+as appropriate when releasing a new APK; retain the public key across app updates.
+
+### Verification scope
+
+CI tests root-bridge lifecycle and update guards using isolated fake module/Magisk
+commands; it checks the real Pocket 72 ZIP in the Android update flow while replacing
+only the Magisk boundary. Instrumentation runs at 1920×1080 / 320 dpi and captures
+Home, Help, history, update available and reboot pending screens. These checks do
+not install Pocket on a physical Tanix and do not establish provider/video success.

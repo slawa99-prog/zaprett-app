@@ -213,6 +213,7 @@ class MainActivity : Activity() {
         info = label("", 23, ink, true); body.addView(info, rowParams())
         subtitle = label("", 16, muted); body.addView(subtitle, rowParams().apply { bottomMargin = dp(18) })
         addControl(body, "diagnose", "Проверить подключение и обход") { app.diagnose() }
+        addControl(body, "help_home", "Готово — на главную") { backStack.clear(); showPage(0, remember = false); focusContent() }
         addControl(body, "help_repair", "Перезапустить обход") { app.control(if (app.module.service == "running") "restart" else "start", helpAfter = true) }
         addControl(body, "help_youtube", "Открыть YouTube и проверить видео") { openVideo(false, feedback = true) }
         addControl(body, "help_smarttube", "Проверить в SmartTube") { openVideo(true, feedback = true) }
@@ -299,6 +300,7 @@ class MainActivity : Activity() {
                         var target = index + step
                         while (target in buttons.indices && (!buttons[target].isEnabled || buttons[target].visibility != View.VISIBLE)) target += step
                         if (target in buttons.indices) buttons[target].requestFocus()
+                        else if (target < 0 && status.isFocusable && status.visibility == View.VISIBLE) status.requestFocus()
                     }
                     true
                 }
@@ -453,8 +455,9 @@ class MainActivity : Activity() {
             controls["diagnose"]?.text = if (app.help.offline) "Проверить ещё раз" else "Проверить подключение и обход"
             controls["help_repair"]?.text = if (m.service == "running") "Перезапустить обход" else "Включить обход"
             val ready = (app.help.ready || awaiting) && app.connected && !s.active && !u.blocksChanges
-            visible("diagnose", !awaiting || !ready)
-            visible("help_repair", ready && !awaiting && !app.helpAlternatives)
+            visible("diagnose", !ready)
+            visible("help_home", app.help.phase == "done" && !awaiting)
+            visible("help_repair", ready && !awaiting && app.help.phase == "repair")
             visible("help_youtube", ready)
             visible("help_smarttube", ready)
             visible("video_yes", awaiting && ready)
@@ -488,11 +491,12 @@ class MainActivity : Activity() {
                 !app.connected -> "Сначала подключите обход"
                 r != null && r.minAppVersion > BuildConfig.VERSION_CODE -> "Сначала обновите SV Pocket"
                 r != null && r.versionCode > m.versionCode -> "Доступно обновление ${r.version}"
-                else -> "Установлена актуальная версия"
+                r == null -> "Проверьте наличие обновлений"
+                else -> "Доступных обновлений нет"
             }
             subtitle?.text = "Установлено: ${m.version.ifEmpty { "не определено" }}" +
                 (if (r != null) "  ·  В каталоге: ${r.version}" else "") + "\n\n" + when {
-                    u.pending -> "Настройки сохранены. Новая версия начнёт работать после перезагрузки."
+                    u.pending -> "Модуль установлен. Новая версия начнёт работать после перезагрузки."
                     u.phase in setOf("failed", "interrupted") -> "Откройте подробности установки. Если перезагрузка уже была, проверьте состояние модуля. Резервная копия сохранена на приставке."
                     else -> r?.notes.orEmpty()
                 }

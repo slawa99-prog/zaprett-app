@@ -11,7 +11,8 @@ import java.util.concurrent.Executors
 import javax.net.ssl.HttpsURLConnection
 
 data class HelpReport(val title: String = "Поможем восстановить YouTube", val detail: String =
-    "Проверим интернет и состояние обхода, затем предложим следующий шаг.", val ready: Boolean = false, val offline: Boolean = false)
+    "Проверим интернет и состояние обхода, затем предложим следующий шаг.", val ready: Boolean = false, val offline: Boolean = false,
+    val phase: String = "check")
 
 class PocketApplication : Application() {
     companion object { internal var backendFactory: ((Application) -> PocketBackend)? = null }
@@ -94,7 +95,7 @@ class PocketApplication : Application() {
                 else "Обход: ${serviceLabel(m.service)}. Стратегия: ${m.selected}"
             if (helpAfter) {
                 helpAlternatives = false
-                help = HelpReport("Теперь проверьте видео", "Откройте YouTube или SmartTube, включите ролик и вернитесь сюда. Сообщите, получилось ли посмотреть видео.", true)
+                help = HelpReport("Теперь проверьте видео", "Откройте YouTube или SmartTube, включите ролик и вернитесь сюда. Сообщите, получилось ли посмотреть видео.", true, phase = "video")
             }
         }
     }
@@ -111,14 +112,14 @@ class PocketApplication : Application() {
         if (!changesAllowed || module.service != "running" || module.selected.isEmpty()) return
         prefs.edit().putString("working_name", module.selected).putString("working_catalog", module.catalogId)
             .putLong("working_at", System.currentTimeMillis()).putBoolean("awaiting_video", false).apply()
-        tried.clear(); helpAlternatives = false; help = HelpReport("Рабочая стратегия сохранена", "${module.selected}\nВы подтвердили воспроизведение видео. При смене сети проверьте его ещё раз.", true)
+        tried.clear(); helpAlternatives = false; help = HelpReport("Рабочая стратегия сохранена", "${module.selected}\nВы подтвердили воспроизведение видео. При смене сети проверьте его ещё раз.", true, phase = "done")
         notice = "Сохранена рабочая стратегия: ${module.selected}"; notifyChanged()
     }
     fun videoFailed() {
         helpAlternatives = true
         if (selectedConfirmed) prefs.edit().remove("working_name").remove("working_catalog").apply()
         tried.add(module.selected); prefs.edit().putBoolean("awaiting_video", false).apply()
-        help = HelpReport("Попробуем другую стратегию", "Выберите следующую стратегию или верните последнюю рабочую. Если подходящих результатов нет, запустите полный подбор.", true)
+        help = HelpReport("Попробуем другую стратегию", "Выберите следующую стратегию или верните последнюю рабочую. Если подходящих результатов нет, запустите полный подбор.", true, phase = "alternatives")
         notifyChanged()
     }
     fun diagnose() = operation("Проверяем интернет…") {
@@ -142,7 +143,7 @@ class PocketApplication : Application() {
                 help = if (s.active) HelpReport("Сейчас идёт подбор", "Дождитесь его окончания или остановите подбор. Во время проверки видео может не работать.")
                     else HelpReport(if (m.service == "running") "Обход включён" else "Обход нужно включить",
                         (if (verified) "Подключение к интернету подтверждено.\n" else "Сеть подключена, но проверочные сайты не ответили. Проверьте, открываются ли другие сервисы.\n") +
-                        (if (m.service == "running") "Попробуйте перезапустить обход, затем откройте видео." else "Нажмите «Включить обход», затем проверьте видео."), true)
+                        (if (m.service == "running") "Попробуйте перезапустить обход, затем откройте видео." else "Нажмите «Включить обход», затем проверьте видео."), true, phase = "repair")
             }
         } catch (e: Exception) {
             main.post { connected = false; help = HelpReport("Не удалось подключить обход", e.message ?: "Проверьте разрешение суперпользователя для SV Pocket."); appendLog(e.message.orEmpty()) }

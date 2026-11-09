@@ -61,6 +61,15 @@ class TvNavigationTest {
         println(String(shell("dumpsys window")).lineSequence().filter { "mCurrentFocus" in it || "mFocusedApp" in it }.joinToString("\n"))
         fail("Activity did not receive input focus; destroyed=${activity.isDestroyed}, finishing=${activity.isFinishing}, changing=${activity.isChangingConfigurations}")
     }
+    private fun waitForList(list: ListView) {
+        repeat(60) {
+            var ready = false
+            instrument.runOnMainSync { ready = list.hasFocus() && list.childCount > 0 && !list.isLayoutRequested }
+            if (ready) return
+            Thread.sleep(50)
+        }
+        fail("Strategy list did not settle before remote input")
+    }
     private fun shell(command: String): ByteArray =
         ParcelFileDescriptor.AutoCloseInputStream(instrument.uiAutomation.executeShellCommand(command)).use { it.readBytes() }
     private fun screenshot(activity: Activity, name: String) {
@@ -113,8 +122,13 @@ class TvNavigationTest {
         click("open_advanced"); click("open_strategies")
         val list = tagged(activity, "strategy_list") as ListView
         instrument.runOnMainSync { list.requestFocus(); list.setSelection(0) }
+        waitForList(list)
         repeat(25) { key(KeyEvent.KEYCODE_DPAD_DOWN) }
-        instrument.runOnMainSync { assertTrue(list.selectedItemPosition >= 20); assertTrue(list.firstVisiblePosition > 0) }
+        screenshot(activity, "01-strategies-scrolled")
+        instrument.runOnMainSync {
+            assertTrue("Selected=${list.selectedItemPosition}, first=${list.firstVisiblePosition}, focus=${activity.currentFocus?.tag}", list.selectedItemPosition >= 20)
+            assertTrue("Strategy list did not scroll", list.firstVisiblePosition > 0)
+        }
         key(KeyEvent.KEYCODE_DPAD_LEFT)
         instrument.runOnMainSync { assertEquals("nav_6", activity.currentFocus?.tag) }
         key(KeyEvent.KEYCODE_BACK)
@@ -124,6 +138,7 @@ class TvNavigationTest {
         assertEquals(10, HistoryStore(context).load().ranked.first().ok)
         val results = tagged(activity, "strategy_list") as ListView
         instrument.runOnMainSync { results.requestFocus(); results.setSelection(0) }
+        waitForList(results)
         repeat(20) { key(KeyEvent.KEYCODE_DPAD_DOWN) }
         instrument.runOnMainSync { assertTrue(results.firstVisiblePosition > 0) }
 

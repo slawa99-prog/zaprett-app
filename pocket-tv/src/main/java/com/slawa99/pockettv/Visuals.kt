@@ -173,6 +173,7 @@ internal class PocketButton(context: Context, icon: PocketIcon? = null,
             intArrayOf(PocketColors.disabled, if (prominent) PocketColors.background else PocketColors.ink)))
         background = PocketSurface(d, navigation = navigation, prominent = prominent)
         stateListAnimator = null; elevation = 0f
+        defaultFocusHighlightEnabled = false
         isFocusable = true; isFocusableInTouchMode = true
     }
     override fun onDraw(canvas: Canvas) {

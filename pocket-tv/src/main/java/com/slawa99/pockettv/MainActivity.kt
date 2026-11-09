@@ -174,7 +174,8 @@ class MainActivity : Activity() {
     private fun hero(parent: LinearLayout, icon: PocketIcon? = null): LinearLayout {
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(20), dp(18), dp(18), dp(18))
+            val inset = if (icon == null) 18 else 12
+            setPadding(dp(20), dp(inset), dp(18), dp(inset))
             background = PocketSurface(resources.displayMetrics.density, hero = true)
         }
         val text = vertical()
@@ -188,6 +189,7 @@ class MainActivity : Activity() {
     }
     private fun scrolling(parent: ViewGroup, inner: View): ScrollView = ScrollView(this).apply {
         isFillViewport = false; clipToPadding = false; setPadding(0, 0, dp(5), dp(4))
+        defaultFocusHighlightEnabled = false
         addView(inner, FrameLayout.LayoutParams(-1, -2)); parent.addView(this, ViewGroup.LayoutParams(-1, -1))
     }
     private fun showPage(index: Int, remember: Boolean = true) {
@@ -372,6 +374,7 @@ class MainActivity : Activity() {
         val lv = ListView(this).apply {
             id = View.generateViewId(); tag = "strategy_list"
             divider = null; dividerHeight = dp(8); isFocusable = true
+            defaultFocusHighlightEnabled = false
             setPadding(dp(3), dp(3), dp(3), dp(3)); clipToPadding = false
             selector = StateListDrawable().apply {
                 addState(intArrayOf(android.R.attr.state_focused), shape(Color.TRANSPARENT, mint))
@@ -405,6 +408,7 @@ class MainActivity : Activity() {
         journal = label("", 13, muted).apply { typeface = Typeface.MONOSPACE; setPadding(dp(10), dp(10), dp(10), dp(10)); background = shape(card) }
         val scroll = ScrollView(this).apply {
             tag = "log_scroll"; isFocusable = true; isFocusableInTouchMode = true; background = focusBackground()
+            defaultFocusHighlightEnabled = false
             addView(journal, FrameLayout.LayoutParams(-1, -2)); nextFocusLeftId = navigationButton().id
         }
         body.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))

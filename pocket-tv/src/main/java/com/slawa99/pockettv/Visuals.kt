@@ -88,7 +88,7 @@ internal class PocketSurface(private val density: Float, private val hero: Boole
 internal enum class PocketIcon { HOME, HELP, SETTINGS, YOUTUBE, SMARTTUBE, DOWNLOAD, REFRESH, POWER,
     CHEVRON, CHECK, CLOSE, LIST, SEARCH, LOG, INFO, COPY, SHARE, BACK, STOP, AUTO }
 
-internal class PocketIconDrawable(var kind: PocketIcon, var tint: Int = PocketColors.ink) : Drawable() {
+internal class PocketIconDrawable(var kind: PocketIcon, var symbolColor: Int = PocketColors.ink) : Drawable() {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val path = Path()
     private var opacity = 255
@@ -100,7 +100,7 @@ internal class PocketIconDrawable(var kind: PocketIcon, var tint: Int = PocketCo
     override fun draw(canvas: Canvas) {
         canvas.save(); canvas.translate(bounds.left.toFloat(), bounds.top.toFloat())
         canvas.scale(bounds.width() / 24f, bounds.height() / 24f)
-        paint.color = tint; paint.alpha = opacity; paint.shader = null
+        paint.color = symbolColor; paint.alpha = opacity; paint.shader = null
         paint.style = Paint.Style.STROKE; paint.strokeWidth = 1.8f
         paint.strokeCap = Paint.Cap.ROUND; paint.strokeJoin = Paint.Join.ROUND
         when (kind) {
@@ -181,7 +181,7 @@ internal class PocketButton(context: Context, icon: PocketIcon? = null,
         iconKind?.let {
             val size = if (navigation) 20 else 25
             val left = ((if (navigation) 14 else 21)*d).toInt(); val top = ((height-size*d)/2).toInt()
-            symbol.kind = it; symbol.tint = tint; symbol.alpha = if (isEnabled) 255 else 115
+            symbol.kind = it; symbol.symbolColor = tint; symbol.alpha = if (isEnabled) 255 else 115
             symbol.setBounds(left,top,left+(size*d).toInt(),top+(size*d).toInt()); symbol.draw(canvas)
             if (!navigation) {
                 paint.color = if (prominent) Color.argb(70,8,15,23) else Color.argb(65,151,196,207)
@@ -189,7 +189,7 @@ internal class PocketButton(context: Context, icon: PocketIcon? = null,
             }
         }
         if (arrow) {
-            chevron.tint = tint; chevron.alpha = if (isEnabled) 220 else 100
+            chevron.symbolColor = tint; chevron.alpha = if (isEnabled) 220 else 100
             val left = width-(31*d).toInt(); val top = height/2-(9*d).toInt()
             chevron.setBounds(left,top,left+(18*d).toInt(),top+(18*d).toInt()); chevron.draw(canvas)
         }
@@ -218,7 +218,7 @@ internal class HeroEmblem(context: Context, initial: PocketIcon) : View(context)
         paint.color = Color.argb(145,218,250,255); canvas.drawCircle(x,y,r*.87f,paint)
         paint.color = Color.argb(210,239,254,255); paint.strokeWidth = side*.017f
         canvas.drawArc(x-r*.92f,y-r*.92f,x+r*.92f,y+r*.92f,204f,78f,false,paint)
-        symbol.kind = kind; symbol.tint = accent
+        symbol.kind = kind; symbol.symbolColor = accent
         val half = (r*.53f).toInt(); symbol.setBounds(x.toInt()-half,y.toInt()-half,x.toInt()+half,y.toInt()+half)
         symbol.draw(canvas)
     }

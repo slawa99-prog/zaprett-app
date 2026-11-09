@@ -28,6 +28,10 @@ cd openssl-3.5.8
 make -j"$(nproc)" build_libs
 make install_dev
 cd "$WORK"
+# FindOpenSSL also consults pkg-config independently of CURL_USE_PKGCONFIG.
+# Never import the host Ubuntu OpenSSL's optional libraries into an Android link.
+export PKG_CONFIG_LIBDIR="$PREFIX/lib/pkgconfig"
+export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig"
 cmake -S curl-8.22.0 -B curl-build -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake" \
   -DANDROID_ABI="$ABI" -DANDROID_PLATFORM=android-28 \

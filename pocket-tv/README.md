@@ -54,6 +54,16 @@ cd pocket-tv && ../gradlew testDebugUnitTest assembleDebug
 
 Проверки: unit-тесты парсинга и рейтинга; интеграционные тесты реального shell-моста; воспроизведение ошибки оригинального curl v71 и проверка резерва через настоящий resolver Pocket на Android 14; HTTPS с TLS 1.2/1.3 и отклонением недоверенного сертификата; тест кнопок пульта, сохранения результатов и сообщений об ошибке. Тестовый модуль не меняет firewall. Реальное ядро приставки, Magisk, NFQUEUE и работа видео требуют проверки на устройстве.
 
+## SV Pocket 1.2.1 — remote navigation fix
+
+The test actions have explicit left/right navigation: YouTube → All services →
+Stop (when enabled). Left returns to the sidebar only from the first available
+action. Down enters the results; Up from the first result returns to the last
+enabled action. Returning from the sidebar restores the previous control, and
+opening the test screen initially focuses YouTube. Strategy names, results and
+module commands are unchanged. Android instrumentation covers these transitions
+with completed results, an empty test, and a running test.
+
 ## SV Pocket 1.2.0 — visual design
 
 Native graphite/turquoise surfaces, silver SV branding, consistent action icons and

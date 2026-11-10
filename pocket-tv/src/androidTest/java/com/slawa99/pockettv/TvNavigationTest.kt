@@ -95,6 +95,9 @@ class TvNavigationTest {
             instrument.runOnMainSync { assertTrue("Focus $tag", tagged(activity, tag).requestFocus()) }
             key(KeyEvent.KEYCODE_DPAD_CENTER)
         }
+        fun expectFocus(tag: String) {
+            instrument.runOnMainSync { assertEquals("Remote focus", tag, activity.currentFocus?.tag) }
+        }
         instrument.runOnMainSync { tagged(activity, "home_primary").requestFocus() }
         screenshot(activity, "00-home-primary")
         key(KeyEvent.KEYCODE_DPAD_DOWN)
@@ -133,6 +136,28 @@ class TvNavigationTest {
         instrument.runOnMainSync { assertEquals("nav_6", activity.currentFocus?.tag) }
         key(KeyEvent.KEYCODE_BACK)
         click("open_tests")
+        // Regression: from All services, Left used to skip YouTube and jump to
+        // Settings. Use real D-pad events, not requestFocus(), for these routes.
+        expectFocus("test_youtube")
+        key(KeyEvent.KEYCODE_DPAD_RIGHT); expectFocus("test_all")
+        key(KeyEvent.KEYCODE_DPAD_RIGHT); expectFocus("test_all") // Stop is disabled.
+        key(KeyEvent.KEYCODE_DPAD_LEFT); expectFocus("test_youtube")
+        screenshot(activity, "02-youtube-focused")
+        key(KeyEvent.KEYCODE_DPAD_CENTER)
+        assertTrue("YouTube test confirmation must open", instrument.uiAutomation.rootInActiveWindow
+            .findAccessibilityNodeInfosByText("адреса YouTube").isNotEmpty())
+        shell("screencap -p /sdcard/Download/pocket-tv-qa/02-youtube-confirm.png")
+        key(KeyEvent.KEYCODE_BACK)
+        key(KeyEvent.KEYCODE_DPAD_LEFT); expectFocus("nav_6")
+        key(KeyEvent.KEYCODE_DPAD_RIGHT); expectFocus("test_youtube")
+        key(KeyEvent.KEYCODE_DPAD_RIGHT); expectFocus("test_all")
+        key(KeyEvent.KEYCODE_DPAD_DOWN); expectFocus("strategy_list")
+        waitForList(tagged(activity, "strategy_list") as ListView)
+        key(KeyEvent.KEYCODE_DPAD_UP); expectFocus("test_all")
+        key(KeyEvent.KEYCODE_DPAD_LEFT); expectFocus("test_youtube")
+        key(KeyEvent.KEYCODE_DPAD_DOWN); expectFocus("strategy_list")
+        waitForList(tagged(activity, "strategy_list") as ListView)
+        key(KeyEvent.KEYCODE_DPAD_UP); expectFocus("test_youtube")
         screenshot(activity, "02-results")
         assertEquals("general (ALT11)", HistoryStore(context).load().ranked.first().name)
         assertEquals(10, HistoryStore(context).load().ranked.first().ok)
@@ -141,6 +166,40 @@ class TvNavigationTest {
         waitForList(results)
         repeat(20) { key(KeyEvent.KEYCODE_DPAD_DOWN) }
         instrument.runOnMainSync { assertTrue(results.firstVisiblePosition > 0) }
+        var selectedResult = 0
+        instrument.runOnMainSync { selectedResult = results.selectedItemPosition }
+        key(KeyEvent.KEYCODE_DPAD_LEFT); expectFocus("nav_6")
+        key(KeyEvent.KEYCODE_DPAD_RIGHT); expectFocus("strategy_list")
+        waitForList(results)
+        instrument.runOnMainSync { assertEquals(selectedResult, results.selectedItemPosition) }
+
+        val completed = fake.snapshot
+        instrument.runOnMainSync { fake.snapshot = completed.copy(id = "empty-test", status = "idle", results = emptyList()); app.refresh() }
+        waitForIdle(app)
+        instrument.runOnMainSync { results.setSelection(0) }
+        waitForList(results)
+        key(KeyEvent.KEYCODE_DPAD_UP); expectFocus("test_youtube")
+        key(KeyEvent.KEYCODE_DPAD_RIGHT); expectFocus("test_all")
+        key(KeyEvent.KEYCODE_DPAD_LEFT); expectFocus("test_youtube")
+
+        // While a test runs, only Stop is enabled. Disabled start buttons must
+        // be skipped, and Up from results must still return to a usable action.
+        instrument.runOnMainSync { fake.snapshot = completed.copy(status = "running"); app.refresh() }
+        waitForIdle(app)
+        instrument.runOnMainSync { results.requestFocus(); results.setSelection(0) }
+        waitForList(results)
+        key(KeyEvent.KEYCODE_DPAD_UP); expectFocus("cancel")
+        key(KeyEvent.KEYCODE_DPAD_LEFT); expectFocus("nav_6")
+        key(KeyEvent.KEYCODE_DPAD_RIGHT); expectFocus("cancel")
+        key(KeyEvent.KEYCODE_DPAD_DOWN); expectFocus("strategy_list")
+        waitForList(results)
+        key(KeyEvent.KEYCODE_DPAD_UP); expectFocus("cancel")
+        screenshot(activity, "02-running-stop-focused")
+        instrument.runOnMainSync { fake.snapshot = completed; app.refresh() }
+        waitForIdle(app)
+        instrument.runOnMainSync { results.requestFocus(); results.setSelection(0) }
+        waitForList(results)
+        key(KeyEvent.KEYCODE_DPAD_UP); expectFocus("test_youtube")
 
         click("nav_5")
         instrument.runOnMainSync { app.videoOpened() }

@@ -40,15 +40,19 @@ class MainActivity : Activity() {
     private val selectionByPage = mutableMapOf<Int, Int>()
     private fun navigationButton() = nav[when (page) { 0 -> 0; 5 -> 1; else -> 2 }]
     private fun rememberPosition() {
-        (currentFocus?.tag as? String)?.let { focusByPage[page] = it }
+        if (!nav.contains(currentFocus)) (currentFocus?.tag as? String)?.let { focusByPage[page] = it }
         list?.let { selectionByPage[page] = it.selectedItemPosition.coerceAtLeast(0) }
+    }
+    private fun focusNavigation() {
+        rememberPosition()
+        navigationButton().requestFocus()
     }
     private fun focusContent() {
         val remembered = focusByPage[page]?.let { window.decorView.findViewWithTag<View>(it) }
         if (remembered != null && remembered.visibility == View.VISIBLE && remembered.isEnabled && remembered.requestFocus()) return
+        if (controls.values.firstOrNull { it.visibility == View.VISIBLE && it.isEnabled }?.requestFocus() == true) return
         if (list != null) { list?.requestFocus(); list?.setSelection(selectionByPage[page] ?: 0); return }
-        controls.values.firstOrNull { it.visibility == View.VISIBLE && it.isEnabled }?.requestFocus()
-            ?: window.decorView.findViewWithTag<View>("about_scroll")?.requestFocus()
+        window.decorView.findViewWithTag<View>("about_scroll")?.requestFocus()
     }
     private var info: TextView? = null
     private var heroEmblem: HeroEmblem? = null
@@ -349,6 +353,8 @@ class MainActivity : Activity() {
     }
     private fun buildStrategies(testPage: Boolean) {
         val body = vertical()
+        val actionButtons = mutableListOf<Button>()
+        var lastAction: Button? = null
         if (testPage) {
             progressTitle = label("", 17, ink, true).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END }
             body.addView(progressTitle, rowParams())
@@ -362,12 +368,13 @@ class MainActivity : Activity() {
             listOf("test_youtube" to "Подбор: YouTube", "test_all" to "Все сервисы", "cancel" to "Остановить").forEach { (key, caption) ->
                 val b = button(caption) { if (key == "cancel") confirmStop() else confirmTest(if (key == "test_all") "all" else "youtube") }.apply { tag = key }
                 controls[key] = b
+                actionButtons.add(b)
                 actions.addView(b, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(7) })
             }
             body.addView(actions, rowParams())
         } else {
             val b = addControl(body, "open_tests", "Подбор по всему каталогу Pocket") { showPage(2); controls["test_youtube"]?.requestFocus() }
-            b.nextFocusLeftId = navigationButton().id
+            actionButtons.add(b)
         }
         subtitle = label("", 14, muted).apply { maxLines = 3; ellipsize = TextUtils.TruncateAt.END }
         body.addView(subtitle, rowParams())
@@ -387,9 +394,50 @@ class MainActivity : Activity() {
         adapter = StrategyAdapter()
         lv.adapter = adapter
         lv.setOnItemClickListener { _, _, position, _ -> adapter?.rows?.getOrNull(position)?.let { showStrategy(it) } }
-        // Explicit return to section navigation; ListView handles ↑/↓ and autoscroll.
+        // Do not leave horizontal actions to geometric focus search: Activity's
+        // left-arrow fallback returns to the rail before Android searches siblings.
+        actionButtons.forEachIndexed { index, b ->
+            b.setOnFocusChangeListener { _, focused -> if (focused) lastAction = b }
+            b.setOnKeyListener { _, key, event ->
+                if (key !in listOf(KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT,
+                        KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN)) false
+                else {
+                    if (event.action == KeyEvent.ACTION_DOWN) when (key) {
+                        KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                            val step = if (key == KeyEvent.KEYCODE_DPAD_LEFT) -1 else 1
+                            var target = index + step
+                            while (target in actionButtons.indices && (!actionButtons[target].isEnabled || !actionButtons[target].isShown)) target += step
+                            if (target in actionButtons.indices) actionButtons[target].requestFocus()
+                            else if (step < 0) focusNavigation()
+                        }
+                        KeyEvent.KEYCODE_DPAD_DOWN -> if (lv.count > 0) {
+                            val position = lv.selectedItemPosition.coerceAtLeast(0)
+                            lv.requestFocus(); lv.setSelection(position)
+                        }
+                        KeyEvent.KEYCODE_DPAD_UP -> if (status.isFocusable && status.isShown) status.requestFocus()
+                    }
+                    true
+                }
+            }
+        }
+        // Within the list, Android still handles selection and autoscroll. At the
+        // first row, Up returns to the last enabled action above the results.
         lv.setOnKeyListener { _, key, event ->
-            if (key == KeyEvent.KEYCODE_DPAD_LEFT && event.action == KeyEvent.ACTION_DOWN) { navigationButton().requestFocus(); true } else false
+            when {
+                key == KeyEvent.KEYCODE_DPAD_LEFT -> {
+                    if (event.action == KeyEvent.ACTION_DOWN) focusNavigation()
+                    true
+                }
+                key == KeyEvent.KEYCODE_DPAD_UP && lv.selectedItemPosition <= 0 -> {
+                    if (event.action == KeyEvent.ACTION_DOWN) {
+                        val target = lastAction?.takeIf { it.isEnabled && it.isShown }
+                            ?: actionButtons.firstOrNull { it.isEnabled && it.isShown }
+                        target?.requestFocus()
+                    }
+                    true
+                }
+                else -> false
+            }
         }
         list = lv
         body.addView(lv, LinearLayout.LayoutParams(-1, 0, 1f))
@@ -666,7 +714,7 @@ class MainActivity : Activity() {
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && nav.contains(currentFocus)) { focusContent(); return true }
         if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT && !nav.contains(currentFocus)) {
-            navigationButton().requestFocus(); return true
+            focusNavigation(); return true
         }
         return super.onKeyDown(keyCode, event)
     }
@@ -675,7 +723,7 @@ class MainActivity : Activity() {
         when {
             backStack.isNotEmpty() -> { rememberPosition(); val previous = backStack.removeAt(backStack.lastIndex); showPage(previous, remember = false); focusContent() }
             page != 0 -> { showPage(0, remember = false); nav[0].requestFocus() }
-            !nav.contains(currentFocus) -> navigationButton().requestFocus()
+            !nav.contains(currentFocus) -> focusNavigation()
             else -> super.onBackPressed()
         }
     }

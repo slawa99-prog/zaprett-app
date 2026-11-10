@@ -76,6 +76,21 @@ class TvNavigationTest {
         }
         fail("Strategy list did not settle before remote input")
     }
+    private fun moveDownTo(list: ListView, position: Int) {
+        // Native ListView can use one press to reveal a clipped card before
+        // changing selection. The tablet taskbar changes the available height.
+        // Verify reaching the requested row, with a finite limit on key presses.
+        repeat(100) {
+            var selected = -1
+            instrument.runOnMainSync {
+                assertTrue("Remote focus left the strategy list", list.hasFocus())
+                selected = list.selectedItemPosition
+            }
+            if (selected >= position) return
+            key(KeyEvent.KEYCODE_DPAD_DOWN)
+        }
+        fail("Remote could not reach strategy row $position")
+    }
     private fun shell(command: String): ByteArray =
         ParcelFileDescriptor.AutoCloseInputStream(instrument.uiAutomation.executeShellCommand(command)).use { it.readBytes() }
     private fun screenshot(activity: Activity, name: String) {
@@ -132,10 +147,10 @@ class TvNavigationTest {
         val list = tagged(activity, "strategy_list") as ListView
         instrument.runOnMainSync { list.requestFocus(); list.setSelection(0) }
         waitForList(list)
-        repeat(25) { key(KeyEvent.KEYCODE_DPAD_DOWN) }
+        moveDownTo(list, 25)
         screenshot(activity, "01-strategies-scrolled")
         instrument.runOnMainSync {
-            assertTrue("Selected=${list.selectedItemPosition}, first=${list.firstVisiblePosition}, focus=${activity.currentFocus?.tag}", list.selectedItemPosition >= 20)
+            assertTrue("Selected=${list.selectedItemPosition}, first=${list.firstVisiblePosition}, focus=${activity.currentFocus?.tag}", list.selectedItemPosition >= 25)
             assertTrue("Strategy list did not scroll", list.firstVisiblePosition > 0)
         }
         key(KeyEvent.KEYCODE_DPAD_LEFT)
@@ -170,7 +185,7 @@ class TvNavigationTest {
         val results = tagged(activity, "strategy_list") as ListView
         instrument.runOnMainSync { results.requestFocus(); results.setSelection(0) }
         waitForList(results)
-        repeat(20) { key(KeyEvent.KEYCODE_DPAD_DOWN) }
+        moveDownTo(results, 20)
         instrument.runOnMainSync { assertTrue(results.firstVisiblePosition > 0) }
         var selectedResult = 0
         instrument.runOnMainSync { selectedResult = results.selectedItemPosition }

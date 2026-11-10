@@ -44,7 +44,13 @@ class TvNavigationTest {
         override fun log() = "Fake Pocket log\n".repeat(200)
     }
     private fun tagged(activity: Activity, tag: String): View = activity.window.decorView.findViewWithTag(tag)
-    private fun key(code: Int) { instrument.sendKeyDownUpSync(code); instrument.waitForIdleSync() }
+    private fun key(code: Int) {
+        instrument.sendKeyDownUpSync(code)
+        // The main queue can be idle before the next layout/accessibility frame.
+        // Wait for the visible response before injecting another remote press.
+        instrument.uiAutomation.waitForIdle(100, 5000)
+        instrument.waitForIdleSync()
+    }
     private fun waitForIdle(app: PocketApplication) {
         repeat(60) { if (app.busy.isEmpty() && app.connected) { instrument.waitForIdleSync(); return }; Thread.sleep(100) }
         fail("Application did not connect: ${app.error}")

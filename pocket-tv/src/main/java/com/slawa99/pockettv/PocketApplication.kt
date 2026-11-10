@@ -15,9 +15,14 @@ data class HelpReport(val title: String = "Поможем восстановит
     val phase: String = "check")
 
 class PocketApplication : Application() {
-    companion object { internal var backendFactory: ((Application) -> PocketBackend)? = null }
+    companion object {
+        internal var backendFactory: ((Application) -> PocketBackend)? = null
+        private const val STATE_CHECK = "Проверяем состояние обхода…"
+    }
     val main = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
+    // Cancellation must not queue behind a slow read-only status request.
+    private val cancelWorker = Executors.newSingleThreadExecutor()
     private val updateChecker = Executors.newSingleThreadExecutor()
     private lateinit var history: HistoryStore
     private val prefs by lazy { getSharedPreferences("friendly", MODE_PRIVATE) }
@@ -41,9 +46,14 @@ class PocketApplication : Application() {
     var updateRequested = false; private set
     private var requestedRelease: ModuleRelease? = null
     private var polling = false
+    @Volatile private var stateEpoch = 0
+    var cancelInFlight = false; private set
     private val tried = linkedSetOf<String>()
     private val listeners = mutableSetOf<() -> Unit>()
-    val changesAllowed get() = busy.isEmpty() && !updateRequested && !update.blocksChanges && connected && !snapshot.active
+    val changesAllowed get() = busy.isEmpty() && !cancelInFlight && !updateRequested && !update.blocksChanges && connected && !snapshot.active
+    val canCancel get() = snapshot.active && !snapshot.cancelRequested && !cancelInFlight &&
+        snapshot.status !in setOf("restoring", "cancelling") && !updateRequested && !update.installing &&
+        (busy.isEmpty() || busy == STATE_CHECK)
     val awaitingVideo get() = prefs.getBoolean("awaiting_video", false) &&
         prefs.getString("video_strategy", "") == module.selected && prefs.getString("video_catalog", "") == module.catalogId
     var automaticUpdateCheck: Boolean
@@ -66,36 +76,73 @@ class PocketApplication : Application() {
     private fun notifyChanged() { listeners.toList().forEach { it() } }
     private fun appendLog(text: String) { operationLog = (operationLog + "\n" + text).takeLast(50000) }
     fun clearError() { error = ""; notifyChanged() }
-    private fun persist(s: TestSnapshot) { if (s.id.isNotEmpty()) history.save(s) }
-    private fun accept(s: TestSnapshot) { if (s.id.isNotEmpty()) snapshot = s }
-    fun refresh() = operation("Проверяем состояние обхода…") {
-        try {
-            val u = backend.updateStatus()
-            main.post { update = u }
-            val m = if (!u.installing) backend.inspect() else null
-            val s = backend.poll(); persist(s)
-            main.post {
-                update = u; if (m != null) { module = m; connected = true }; accept(s)
-                if (u.phase == "completed") notice = "Обновление завершено. Каталог стратегий обновлён."
-            }
-        } catch (e: Exception) { main.post { connected = false }; throw e }
+    @Synchronized private fun persist(s: TestSnapshot, epoch: Int = stateEpoch) {
+        if (epoch == stateEpoch && s.id.isNotEmpty()) history.save(s)
     }
-    fun control(command: String, argument: String = "", helpAfter: Boolean = false) = operation(when (command) {
-        "apply" -> "Включаем стратегию $argument…"
-        "start" -> "Включаем обход…"
-        "stop" -> "Выключаем обход…"
-        "cancel-test" -> "Останавливаем подбор…"
-        else -> "Перезапускаем обход…"
-    }) {
-        val output = backend.command(command, argument)
-        val m = backend.inspect(); val s = backend.poll(); persist(s)
-        main.post {
-            appendLog(output); module = m; accept(s); connected = true
-            notice = if (command == "cancel-test") "Дождитесь завершения остановки. Результаты сохранятся."
-                else "Обход: ${serviceLabel(m.service)}. Стратегия: ${m.selected}"
-            if (helpAfter) {
-                helpAlternatives = false
-                help = HelpReport("Теперь проверьте видео", "Откройте YouTube или SmartTube, включите ролик и вернитесь сюда. Сообщите, получилось ли посмотреть видео.", true, phase = "video")
+    private fun accept(s: TestSnapshot) {
+        if (s.id.isEmpty()) return
+        if (snapshot.active && !s.active || s.cancelRequested || s.status in setOf("cancelling", "restoring")) notice = s.headline()
+        snapshot = s
+    }
+    fun refresh() {
+        val epoch = stateEpoch
+        operation(STATE_CHECK, finished = {
+            if (epoch != stateEpoch && !connected && !cancelInFlight) refresh()
+        }) {
+            val started = System.nanoTime()
+            try {
+                val state = backend.readState(); persist(state.test, epoch)
+                main.post {
+                    if (epoch != stateEpoch) return@post
+                    update = state.update; state.module?.let { module = it; connected = true }; accept(state.test)
+                    appendLog("Состояние: ${(System.nanoTime() - started) / 1_000_000} мс")
+                    if (update.phase == "completed") notice = "Обновление завершено. Каталог стратегий обновлён."
+                }
+            } catch (e: Exception) {
+                main.post { if (epoch == stateEpoch) { connected = false; error = e.message.orEmpty(); appendLog(error) } }
+            }
+        }
+    }
+    private fun cancelTest() {
+        if (!canCancel) return
+        val epoch = ++stateEpoch
+        cancelInFlight = true; error = ""; notice = "Отправляем команду остановки…"; notifyChanged()
+        cancelWorker.execute {
+            val started = System.nanoTime()
+            try {
+                val s = backend.cancelTest(); persist(s, epoch)
+                main.post {
+                    if (epoch == stateEpoch) {
+                        accept(s); notice = s.headline()
+                        appendLog("Команда остановки принята: ${(System.nanoTime() - started) / 1_000_000} мс")
+                    }
+                }
+            } catch (e: Exception) {
+                main.post { error = e.message ?: "Не удалось остановить подбор"; notice = ""; appendLog(error) }
+            } finally { main.post {
+                cancelInFlight = false; notifyChanged()
+                if (!connected && busy.isEmpty()) refresh()
+            } }
+        }
+    }
+    fun control(command: String, argument: String = "", helpAfter: Boolean = false) {
+        if (command == "cancel-test") { cancelTest(); return }
+        operation(when (command) {
+            "apply" -> "Включаем стратегию $argument…"
+            "start" -> "Включаем обход…"
+            "stop" -> "Выключаем обход…"
+            else -> "Перезапускаем обход…"
+        }) {
+            val output = backend.command(command, argument)
+            val state = backend.readState(); val m = state.module ?: error("Не удалось прочитать состояние модуля")
+            val s = state.test; persist(s)
+            main.post {
+                appendLog(output); module = m; update = state.update; accept(s); connected = true
+                notice = "Обход: ${serviceLabel(m.service)}. Стратегия: ${m.selected}"
+                if (helpAfter) {
+                    helpAlternatives = false
+                    help = HelpReport("Теперь проверьте видео", "Откройте YouTube или SmartTube, включите ролик и вернитесь сюда. Сообщите, получилось ли посмотреть видео.", true, phase = "video")
+                }
             }
         }
     }
@@ -124,6 +171,7 @@ class PocketApplication : Application() {
         notifyChanged()
     }
     fun diagnose() = operation("Проверяем интернет…") {
+        val epoch = stateEpoch
         val network = getSystemService(ConnectivityManager::class.java)
         val caps = network.getNetworkCapabilities(network.activeNetwork)
         if (caps == null || !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
@@ -133,13 +181,15 @@ class PocketApplication : Application() {
         val verified = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) || probeInternet()
         main.post { busy = "Проверяем состояние обхода…"; notifyChanged() }
         try {
-            val u = backend.updateStatus()
+            val state = backend.readState(); val u = state.update
             if (u.blocksChanges) {
                 main.post { update = u; help = HelpReport("Сначала завершите обновление", "Откройте «Обновление обхода». После установки потребуется перезагрузка.") }
                 return@operation
             }
-            val m = backend.inspect(); val s = backend.poll(); persist(s)
+            val m = state.module ?: error("Не удалось прочитать состояние модуля")
+            val s = state.test; persist(s, epoch)
             main.post {
+                if (epoch != stateEpoch) return@post
                 update = u; module = m; connected = true; accept(s); helpAlternatives = false
                 help = if (s.active) HelpReport("Сейчас идёт подбор", "Дождитесь его окончания или остановите подбор. Во время проверки видео может не работать.")
                     else HelpReport(if (m.service == "running") "Обход включён" else "Обход нужно включить",
@@ -147,7 +197,7 @@ class PocketApplication : Application() {
                         (if (m.service == "running") "Попробуйте перезапустить обход, затем откройте видео." else "Нажмите «Включить обход», затем проверьте видео."), true, phase = "repair")
             }
         } catch (e: Exception) {
-            main.post { connected = false; help = HelpReport("Не удалось подключить обход", e.message ?: "Проверьте разрешение суперпользователя для SV Pocket."); appendLog(e.message.orEmpty()) }
+            main.post { if (epoch == stateEpoch) { connected = false; help = HelpReport("Не удалось подключить обход", e.message ?: "Проверьте разрешение суперпользователя для SV Pocket."); appendLog(e.message.orEmpty()) } }
         }
     }
     private fun probeInternet(): Boolean {
@@ -213,18 +263,26 @@ class PocketApplication : Application() {
     fun rebootAfterUpdate() = operation("Перезагружаем приставку…") { backend.reboot() }
     fun readLog() = operation("Читаем журнал…") { val text = backend.log(); main.post { fullLog = text; notice = "Журнал обновлён" } }
     fun poll() {
-        if (busy.isNotEmpty() || updateRequested || polling || !connected && !update.installing) return
+        if (busy.isNotEmpty() || cancelInFlight || updateRequested || polling || !connected && !snapshot.active && !update.installing) return
         polling = true
+        val epoch = stateEpoch
+        val wasActive = snapshot.active
+        val wasInstalling = update.installing
         worker.execute {
             try {
-                val u = backend.updateStatus(); val s = backend.poll(); persist(s)
-                val m = if ((snapshot.active && !s.active || update.installing && !u.installing) && !u.installing) backend.inspect() else null
-                main.post { update = u; accept(s); if (m != null) { module = m; connected = true }; polling = false; notifyChanged() }
-            } catch (e: Exception) { main.post { polling = false; error = "Не удалось обновить состояние: ${e.message}"; notifyChanged() } }
+                val state = backend.readState(includeModule = false)
+                val u = state.update; val s = state.test; persist(s, epoch)
+                // Publish the terminal result before refreshing the catalog.
+                main.post {
+                    if (epoch == stateEpoch) { update = u; accept(s); notifyChanged() }
+                }
+                val m = if (epoch == stateEpoch && (wasActive && !s.active || wasInstalling && !u.installing) && !u.installing) backend.inspect() else null
+                main.post { if (epoch == stateEpoch && m != null) { module = m; connected = true }; polling = false; notifyChanged() }
+            } catch (e: Exception) { main.post { polling = false; if (epoch == stateEpoch) error = "Не удалось обновить состояние: ${e.message}"; notifyChanged() } }
         }
     }
     private fun operation(label: String, updateOperation: Boolean = false, finished: () -> Unit = {}, block: () -> Unit) {
-        if (busy.isNotEmpty() || updateRequested && !updateOperation) return
+        if (busy.isNotEmpty() || cancelInFlight || updateRequested && !updateOperation) return
         busy = label; error = ""; notice = ""; notifyChanged()
         worker.execute {
             try { block() }

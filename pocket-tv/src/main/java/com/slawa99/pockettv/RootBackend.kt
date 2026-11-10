@@ -13,6 +13,11 @@ interface PocketBackend {
     fun launch(profile: String): String
     fun log(): String
     fun updateStatus(): ModuleUpdateState = ModuleUpdateState()
+    fun readState(includeModule: Boolean = true): BackendState {
+        val update = updateStatus()
+        return BackendState(if (includeModule && !update.installing) inspect() else null, poll(), update)
+    }
+    fun cancelTest(): TestSnapshot { command("cancel-test"); return poll() }
     fun installUpdate(file: File, release: ModuleRelease): String = error("Обновление недоступно")
     fun reboot(): String = error("Перезагрузка недоступна")
 }
@@ -25,7 +30,7 @@ class RootBackend(private val context: Context) : PocketBackend {
             }
         }
     }
-    override fun inspect(): ModuleInfo = PocketProtocol.module(run("inspect", timeout = 65))
+    override fun inspect(): ModuleInfo = PocketProtocol.module(run("inspect", timeout = 25))
     override fun poll(): TestSnapshot = PocketProtocol.test(run("poll", timeout = 25))
     override fun command(command: String, argument: String): String {
         require(command in setOf("start", "stop", "restart", "apply", "cancel-test"))
@@ -38,6 +43,8 @@ class RootBackend(private val context: Context) : PocketBackend {
     }
     override fun log(): String = run("log", timeout = 30)
     override fun updateStatus() = ModuleUpdateState.parse(run("update-status", timeout = 25))
+    override fun readState(includeModule: Boolean) = PocketProtocol.state(run("state", if (includeModule) "full" else "quick", timeout = 25))
+    override fun cancelTest() = PocketProtocol.test(run("cancel-test", timeout = 15))
     override fun installUpdate(file: File, release: ModuleRelease): String = run(
         "install-update", file.absolutePath, release.versionCode.toString(), release.sha256, timeout = 65)
     override fun reboot(): String = run("reboot-after-update", timeout = 15)

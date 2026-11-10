@@ -91,6 +91,36 @@ class BridgeTest(unittest.TestCase):
         self.assertEqual('restart', (self.mod / 'calls').read_text().splitlines()[-1])
         self.assertNotEqual(0, self.call('apply', '../general', check=False).returncode)
 
+    def test_full_state_uses_readonly_predicates_and_preserves_catalog_fingerprint(self):
+        with (self.mod / 'common.sh').open('a') as out:
+            out.write('''
+service_is_running() { [ "$(cat "$MODPATH/state")" = running ]; }
+nfqws_is_running() { service_is_running; }
+dnscrypt_supervisor_is_running() { return 1; }
+dnscrypt_is_running() { return 1; }
+''')
+        for n in range(300):
+            (self.mod / 'strategy' / f'alt-{n:03}.sh').write_text(f'# strategy {n}\n')
+        # Compare with the previous fingerprint, including spaces, apostrophes
+        # and dollar signs: saved ratings must not become stale after this fix.
+        old = subprocess.check_output(['/bin/sh', '-c', '''
+{ sed -n 's/^versionCode=//p' "$POCKET_TV_MODULE/module.prop"
+for f in "$POCKET_TV_MODULE/strategy/"*.sh; do sha256sum "$f"; done
+} | sha256sum
+'''], env=self.env, text=True).split()[0]
+        state = self.call('state', 'full').stdout
+        self.assertIn('@@CATALOG_ID ' + old, state)
+        self.assertIn('@@SERVICE running', state)
+        self.assertEqual(302, state.count('@@STRATEGY '))
+        self.assertFalse((self.mod / 'calls').exists(), 'Status must not run the migrating CLI')
+        self.assertEqual(['UPDATE', 'MODULE', 'TEST', 'END'],
+                         [line.split()[-1] for line in state.splitlines() if line.startswith('@@SECTION ')])
+        quick = self.call('state', 'quick').stdout
+        self.assertNotIn('@@STRATEGY ', quick)
+        self.assertNotIn('@@CATALOG_ID ', quick)
+        self.assertIn('@@STATE idle', quick)
+        self.assertFalse((self.mod / 'calls').exists())
+
     def test_detached_test_survives_client_exit_and_preserves_strategy(self):
         self.call('launch-test', 'youtube', 'test-one')
         out = self.done()
@@ -106,8 +136,11 @@ class BridgeTest(unittest.TestCase):
         self.call('launch-test', 'all', 'cancel-test')
         self.assertNotEqual(0, self.call('apply', 'general', check=False).returncode)
         self.assertNotEqual(0, self.call('launch-test', 'all', 'second', check=False).returncode)
-        self.call('cancel-test')
-        self.assertIn('@@STATE cancelled', self.done(timeout=22))
+        calls_before = (self.mod / 'calls').read_text().splitlines().count('status')
+        reply = self.call('cancel-test').stdout
+        self.assertIn('@@CANCEL_REQUESTED 1', reply)
+        self.assertIn('@@STATE cancelled', self.done(timeout=8))
+        self.assertEqual(calls_before, (self.mod / 'calls').read_text().splitlines().count('status'))
         self.assertEqual('running', (self.mod / 'state').read_text().strip())
 
     def test_failure_keeps_results_and_stopped_service_stopped(self):
@@ -125,9 +158,33 @@ class BridgeTest(unittest.TestCase):
         self.env['FAKE_TEST_DELAY'] = '30'
         self.call('launch-test', 'all', 'stubborn')
         self.call('cancel-test')
-        out = self.done(timeout=25)
+        out = self.done(timeout=10)
         self.assertIn('@@STATE cancelled', out)
         self.assertEqual('running', (self.mod / 'state').read_text().strip())
+
+    def test_cancellation_exposes_restoration_without_losing_results(self):
+        cli = self.mod / 'system/bin/zapret'
+        cli.write_text(FAKE.replace('start|restart) echo running', 'start|restart) sleep 3; echo running'))
+        self.env['FAKE_TEST_DELAY'] = '30'
+        self.call('launch-test', 'all', 'restore-stage')
+        session = self.base / 'data/session'
+        with (session / 'test.log').open('a') as log:
+            log.write('@@RESULT OK 1 4 2 4 3 4 finished-before-cancel\n')
+        self.call('cancel-test')
+        deadline = time.monotonic() + 6
+        while time.monotonic() < deadline:
+            state = self.call('poll').stdout
+            if '@@STATE restoring' in state and '@@RESTORE_STEP start' in state:
+                break
+            time.sleep(.1)
+        self.assertIn('@@STATE restoring', state)
+        self.assertIn('@@CANCEL_REQUESTED 1', state)
+        self.assertIn('@@RESTORE_STEP start', state)
+        self.assertNotEqual(0, self.call('launch-test', 'all', 'must-wait', check=False).returncode)
+        final = self.done(timeout=8)
+        self.assertIn('@@STATE cancelled', final)
+        self.assertIn('@@RESULT OK 1 4 2 4 3 4 finished-before-cancel', final)
+        self.assertIn('@@RESTORE ok', final)
 
     def test_stale_owner_is_not_running_or_killed(self):
         self.call('launch-test', 'youtube', 'stale')

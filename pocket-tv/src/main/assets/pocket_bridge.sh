@@ -60,7 +60,11 @@ idle_required() {
     fi
 }
 catalog_id() {
-    { sed -n 's/^versionCode=//p' "$MOD/module.prop"; for f in "$MOD/strategy/"*.sh; do [ ! -f "$f" ] || sha256sum "$f"; done; } | sha256sum | awk '{print $1}'
+    # Preserve the existing fingerprint, but start sha256sum once for the whole
+    # catalog instead of hundreds of separate processes on a TV box.
+    set --
+    for f in "$MOD/strategy/"*.sh; do [ ! -f "$f" ] || set -- "$@" "$f"; done
+    { sed -n 's/^versionCode=//p' "$MOD/module.prop"; [ "$#" -eq 0 ] || sha256sum "$@"; } | sha256sum | awk '{print $1}'
 }
 version_code() { [ ! -f "$1/module.prop" ] || sed -n 's/^versionCode=//p' "$1/module.prop" | tr -d '\r'; }
 update_in_progress() { [ "$(value "$UPDATE/state")" = installing ] && alive "$UPDATE/owner"; }
@@ -183,11 +187,28 @@ CURL_WRAPPER
     fi
     printf '\nSV Pocket: curl готов: %s\n' "$resolved" >> "$BASE/preflight.log"
 }
+service_status() {
+    # Pocket's CLI status runs layout/config migrations. Read the same process
+    # predicates without migrations on every app resume. Isolate sourced globals.
+    if [ -f "$MOD/config/current-strategy" ] && [ -d "$MOD/strategy" ] && [ -f "$MOD/common.sh" ]; then
+        fast_status="$("$SHELL_BIN" -c '
+            MODPATH="$1"; . "$MODPATH/common.sh"
+            for predicate in service_is_running nfqws_is_running dnscrypt_supervisor_is_running dnscrypt_is_running; do
+                command -v "$predicate" >/dev/null 2>&1 || exit 2
+            done
+            if service_is_running && nfqws_is_running; then echo running
+            elif service_is_running || nfqws_is_running || dnscrypt_supervisor_is_running || dnscrypt_is_running; then echo degraded
+            else echo stopped; fi
+        ' pocket-status "$MOD" 2>/dev/null)"
+        case "$fast_status" in running|degraded|stopped) printf '%s\n' "$fast_status"; return ;; esac
+    fi
+    # Older/uninitialised layouts still need Pocket's migration once.
+    "$SHELL_BIN" "$CLI" status 2>/dev/null | tail -n 1
+}
 inspect() {
     require_module
     update_in_progress && fail 'Идёт установка обновления. Дождитесь её завершения.'
-    # status also performs Pocket's own layout migration from older releases.
-    svc="$("$SHELL_BIN" "$CLI" status 2>/dev/null | tail -n 1)"
+    svc="$(service_status)"
     field VERSION "$(sed -n 's/^version=//p' "$MOD/module.prop" | tr -d '\r')"
     field VERSION_CODE "$(version_code "$MOD")"
     field CATALOG_ID "$(catalog_id)"
@@ -214,6 +235,8 @@ poll() {
     field PROFILE "$(value "$SESSION/profile")"
     field EXIT "$(value "$SESSION/exit")"
     field RESTORE "$(value "$SESSION/restore")"
+    if [ -f "$SESSION/cancel" ]; then field CANCEL_REQUESTED 1; else field CANCEL_REQUESTED 0; fi
+    field RESTORE_STEP "$(value "$SESSION/restore-step")"
     field ERROR "$(value "$SESSION/error")"
     field MODULE_VERSION "$(value "$SESSION/module-version")"
     field CATALOG_ID "$(value "$SESSION/catalog-id")"
@@ -222,6 +245,17 @@ poll() {
     tail -n 35 "$SESSION/test.log" 2>/dev/null
     tail -n 8 "$SESSION/recovery.log" 2>/dev/null
     return 0
+}
+read_state() {
+    # One su invocation, with explicit section boundaries so logs cannot be
+    # mistaken for module/test fields. No internet probes on this path.
+    printf '@@SECTION UPDATE\n'
+    update_status
+    printf '\n@@SECTION MODULE\n'
+    if [ "$1" = full ] && ! update_in_progress; then inspect; fi
+    printf '@@SECTION TEST\n'
+    poll
+    printf '\n@@SECTION END\n'
 }
 launch_test() {
     require_module
@@ -263,20 +297,25 @@ launch_test() {
 stop_test_child() {
     alive "$SESSION/child" || return 0
     read -r cpid ctoken cboot < "$SESSION/child"
-    # The child's group is isolated by setsid; do not signal an unrelated process group.
-    kill -TERM "$cpid" 2>/dev/null || true
+    # Interrupt the network children immediately as well as their shell. Check
+    # both session and group leadership before signalling a negative PID.
+    isolated_child() {
+        alive "$SESSION/child" &&
+            [ "$(sed 's/.*) //' "/proc/$cpid/stat" 2>/dev/null | awk '{print $3 " " $4}')" = "$cpid $cpid" ]
+    }
+    if isolated_child; then kill -TERM "-$cpid" 2>/dev/null || true
+    else kill -TERM "$cpid" 2>/dev/null || true; fi
     n=0
-    while alive "$SESSION/child" && [ "$n" -lt 12 ]; do sleep 1; n=$((n+1)); done
+    while alive "$SESSION/child" && [ "$n" -lt 4 ]; do sleep 1; n=$((n+1)); done
     if alive "$SESSION/child"; then
-        kill -TERM "-$cpid" 2>/dev/null || true
-        sleep 1
-        if alive "$SESSION/child"; then kill -KILL "-$cpid" 2>/dev/null || true; fi
+        if isolated_child; then kill -KILL "-$cpid" 2>/dev/null || true
+        else kill -KILL "$cpid" 2>/dev/null || true; fi
     fi
 }
 run_test() {
     identity "$$" > "$SESSION/owner"
     trap 'touch "$SESSION/cancel"' INT TERM
-    before="$("$SHELL_BIN" "$CLI" status 2>/dev/null | tail -n 1)"
+    before="$(service_status)"
     printf '%s\n' "$before" > "$SESSION/before"
     printf 'SV Pocket: подготовка. Предыдущее состояние: %s\n' "$before" > "$SESSION/test.log"
     cat "$BASE/preflight.log" >> "$SESSION/test.log" 2>/dev/null
@@ -298,16 +337,18 @@ run_test() {
                 stop_test_child
                 break
             fi
-            sleep 2
+            sleep 1
         done
         wait "$child"
         result=$?
     fi
     write_state restoring
+    printf 'cleanup\n' > "$SESSION/restore-step"
     printf 'SV Pocket: восстановление сервиса…\n' > "$SESSION/recovery.log"
     "$SHELL_BIN" "$CLI" stop >> "$SESSION/recovery.log" 2>&1
     restore=ok
     case "$before" in running|degraded)
+        printf 'start\n' > "$SESSION/restore-step"
         "$SHELL_BIN" "$CLI" start >> "$SESSION/recovery.log" 2>&1 || restore=failed ;;
     esac
     printf '%s\n' "$restore" > "$SESSION/restore"
@@ -336,6 +377,7 @@ case "${1:-}" in
         [ -f "$STAGING/module.prop" ] || fail 'Нет обновления, ожидающего перезагрузки.'
         reboot ;;
     inspect) inspect ;;
+    state) case "${2:-}" in full|quick) read_state "$2" ;; *) fail 'Неизвестный режим состояния.' ;; esac ;;
     poll) poll ;;
     log)
         printf '\n=== preflight.log ===\n'
@@ -355,7 +397,7 @@ case "${1:-}" in
         acquire
         active || fail 'Подбор уже завершён или прерван.'
         touch "$SESSION/cancel"
-        printf 'Запрошена остановка. Дождитесь восстановления сервиса.\n' ;;
+        poll ;;
     start|stop|restart)
         require_module; acquire; idle_required
         "$SHELL_BIN" "$CLI" "$1" ;;

@@ -7,6 +7,8 @@ data class ModuleInfo(
     val versionCode: Int = 0, val catalogId: String = ""
 )
 
+data class BackendState(val module: ModuleInfo?, val test: TestSnapshot, val update: ModuleUpdateState)
+
 data class ProbeResult(
     val name: String, val status: String, val httpOk: Int, val httpTotal: Int,
     val tls12Ok: Int, val tls12Total: Int, val tls13Ok: Int, val tls13Total: Int
@@ -25,18 +27,20 @@ data class TestSnapshot(
     val current: String = "", val started: Long = 0, val profile: String = "youtube",
     val results: List<ProbeResult> = emptyList(), val tail: String = "", val exitCode: String = "",
     val restore: String = "", val failure: String = "",
-    val moduleVersion: String = "", val catalogId: String = ""
+    val moduleVersion: String = "", val catalogId: String = "",
+    val cancelRequested: Boolean = false, val restoreStep: String = ""
 ) {
     fun matches(module: ModuleInfo) = catalogId.isNotEmpty() && catalogId == module.catalogId
     val active get() = status in setOf("starting", "running", "restoring", "cancelling")
     val completed get() = results.size
     val ranked get() = results.sortedWith(compareByDescending<ProbeResult> { it.fraction }
         .thenByDescending { it.ok }.thenBy { it.name.lowercase() })
-    fun headline(): String = when (status) {
+    fun headline(): String = if (active && cancelRequested && status != "restoring") "Останавливаем сетевые проверки…" else when (status) {
         "starting" -> "Подготовка: запуск тестера Pocket"
         "running" -> "Проверяется: ${current.ifEmpty { "подготовка сети" }}"
-        "restoring" -> "Проверки закончены. Восстановление сервиса…"
-        "cancelling" -> "Остановка и восстановление сервиса…"
+        "restoring" -> if (restoreStep == "start") "Проверки закончены. Включаем прежний обход…"
+            else "Проверки закончены. Убираем временные настройки…"
+        "cancelling" -> "Останавливаем сетевые проверки…"
         "completed" -> "Подбор завершён. Выберите стратегию из результатов"
         "cancelled" -> "Подбор остановлен. Готовые результаты сохранены"
         "interrupted" -> "Подбор прерван перезагрузкой или остановкой процесса"
@@ -53,6 +57,15 @@ object PocketProtocol {
     private val ansi = Regex("\u001B\\[[0-9;]*[A-Za-z]")
     fun safeName(name: String): Boolean = name.isNotBlank() && name.length <= 240 &&
         name != "." && name != ".." && name.none { it == '/' || it.isISOControl() }
+    fun state(output: String): BackendState {
+        val sections = Regex("^@@SECTION (UPDATE|MODULE|TEST|END)$", RegexOption.MULTILINE).findAll(output).toList()
+        require(sections.map { it.groupValues[1] } == listOf("UPDATE", "MODULE", "TEST", "END")) {
+            "Неполный ответ состояния Pocket. Обновите состояние."
+        }
+        fun section(i: Int) = output.substring(sections[i].range.last + 1, sections[i + 1].range.first).trim()
+        val info = section(1)
+        return BackendState(if (info.isEmpty()) null else module(info), test(section(2)), ModuleUpdateState.parse(section(0)))
+    }
     fun module(output: String): ModuleInfo {
         val lines = output.lines()
         fun field(key: String) = lines.firstOrNull { it.startsWith("@@$key ") }?.substringAfter(' ').orEmpty()
@@ -78,7 +91,8 @@ object PocketProtocol {
         return TestSnapshot(field("ID"), field("STATE").ifEmpty { "idle" }, total,
             field("TESTING"), field("STARTED").toLongOrNull() ?: 0, field("PROFILE").ifEmpty { "youtube" },
             results.values.toList(), output.substringAfter("@@LOGTAIL\n", "").replace(ansi, "").takeLast(16000),
-            field("EXIT"), field("RESTORE"), field("ERROR").take(220), field("MODULE_VERSION"), field("CATALOG_ID"))
+            field("EXIT"), field("RESTORE"), field("ERROR").take(220), field("MODULE_VERSION"), field("CATALOG_ID"),
+            field("CANCEL_REQUESTED") == "1", field("RESTORE_STEP"))
     }
     fun shellQuote(value: String): String = "'" + value.replace("'", "'\\''") + "'"
 }

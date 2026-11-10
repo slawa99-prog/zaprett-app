@@ -4,6 +4,44 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PocketProtocolTest {
+    @Test fun combinedStatusKeepsLogsAndSectionsSeparate() {
+        val output = """
+            @@SECTION UPDATE
+            @@UPDATE_STATE idle
+            @@UPDATE_LOG
+            update log
+            @@SECTION MODULE
+            @@VERSION v72
+            @@CATALOG_ID current
+            @@SERVICE running
+            @@STRATEGY ALT11
+            @@SECTION TEST
+            @@ID test
+            @@STATE restoring
+            @@CANCEL_REQUESTED 1
+            @@RESTORE_STEP start
+            @@CATALOG_ID previous
+            @@LOGTAIL
+            @@VERSION not a module version
+            @@SECTION END
+        """.trimIndent()
+        val state = PocketProtocol.state(output)
+        assertEquals("v72", state.module!!.version)
+        assertEquals("current", state.module.catalogId)
+        assertEquals("previous", state.test.catalogId)
+        assertTrue(state.test.cancelRequested)
+        assertTrue(state.test.headline().contains("Включаем прежний обход"))
+        assertFalse(state.update.detail.contains("@@VERSION"))
+        val quick = PocketProtocol.state("@@SECTION UPDATE\n@@UPDATE_STATE installing\n@@SECTION MODULE\n@@SECTION TEST\n@@STATE idle\n@@SECTION END")
+        assertNull(quick.module)
+        assertTrue(quick.update.installing)
+        assertThrows(IllegalArgumentException::class.java) { PocketProtocol.state(output.substringBefore("@@SECTION END")) }
+    }
+    @Test fun cancellationDoesNotDisplayStaleWaitingAfterCompletion() {
+        val stopping = TestSnapshot(status = "running", cancelRequested = true)
+        assertTrue(stopping.headline().contains("Останавливаем"))
+        assertTrue(stopping.copy(status = "cancelled").headline().contains("Готовые результаты сохранены"))
+    }
     @Test fun parsesProtocolAndKeepsNamesWithSpaces() {
         val s = PocketProtocol.test("""
             @@ID abc

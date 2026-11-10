@@ -17,6 +17,7 @@ class HistoryStore(context: Context) {
             .put("current", s.current).put("started", s.started).put("profile", s.profile)
             .put("tail", s.tail).put("exit", s.exitCode).put("restore", s.restore).put("failure", s.failure)
             .put("moduleVersion", s.moduleVersion).put("catalogId", s.catalogId).put("results", rows)
+            .put("cancelRequested", s.cancelRequested).put("restoreStep", s.restoreStep)
         val stream = file.startWrite()
         try { stream.write(json.toString().toByteArray(Charsets.UTF_8)); file.finishWrite(stream) }
         catch (e: Exception) { file.failWrite(stream); throw e }
@@ -30,6 +31,6 @@ class HistoryStore(context: Context) {
         TestSnapshot(json.getString("id"), json.getString("status"), json.getInt("total"),
             json.optString("current"), json.optLong("started"), json.optString("profile", "youtube"), rows,
             json.optString("tail"), json.optString("exit"), json.optString("restore"), json.optString("failure"),
-            json.optString("moduleVersion"), json.optString("catalogId"))
+            json.optString("moduleVersion"), json.optString("catalogId"), json.optBoolean("cancelRequested"), json.optString("restoreStep"))
     } catch (_: Exception) { TestSnapshot() }
 }

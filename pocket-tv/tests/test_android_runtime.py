@@ -99,6 +99,15 @@ with tempfile.TemporaryDirectory() as temp:
     with zipfile.ZipFile(release) as archive:
         (mod / 'common.sh').write_bytes(archive.read('common.sh'))
         (mod / 'curl').write_bytes(archive.read('curl-x86_64'))
+    # Keep the genuine downloader/resolver, but model service predicates for
+    # this firewall-free fixture, including the bridge's read-only status path.
+    with (mod / 'common.sh').open('a') as common:
+        common.write('''
+service_is_running() { [ "$(cat "$MODPATH/state")" = running ]; }
+nfqws_is_running() { service_is_running; }
+dnscrypt_supervisor_is_running() { return 1; }
+dnscrypt_is_running() { return 1; }
+''')
     (mod / 'module.prop').write_text('id=zapret\nauthor=sevcator\nversion=v71\n')
     (mod / 'state').write_text('running\n')
     (mod / 'config/current-strategy').write_text('fixture\n')

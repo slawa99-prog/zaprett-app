@@ -9,6 +9,9 @@ import android.widget.ListView
 import android.widget.Button
 import android.app.AlertDialog
 import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -28,7 +31,24 @@ class TvNavigationTest {
         var moduleVersion = 71
         var updateState = ModuleUpdateState()
         var installs = 0
-        override fun inspect() = ModuleInfo("v$moduleVersion", "running", selected, names, true, bootEnabled = true, versionCode = moduleVersion, catalogId = "fixture-v$moduleVersion")
+        val inspections = AtomicInteger()
+        @Volatile var blockedRead: CountDownLatch? = null
+        val readEntered = CountDownLatch(1)
+        val cancelReceived = CountDownLatch(1)
+        override fun inspect(): ModuleInfo {
+            inspections.incrementAndGet()
+            return ModuleInfo("v$moduleVersion", "running", selected, names, true, bootEnabled = true, versionCode = moduleVersion, catalogId = "fixture-v$moduleVersion")
+        }
+        override fun readState(includeModule: Boolean): BackendState {
+            val state = super.readState(includeModule)
+            blockedRead?.let { readEntered.countDown(); check(it.await(15, TimeUnit.SECONDS)) }
+            return state
+        }
+        override fun cancelTest(): TestSnapshot {
+            snapshot = snapshot.copy(cancelRequested = true)
+            cancelReceived.countDown()
+            return snapshot
+        }
         override fun updateStatus() = updateState
         override fun installUpdate(file: File, release: ModuleRelease): String {
             UpdateSecurity.validateZip(file, release)
@@ -216,6 +236,34 @@ class TvNavigationTest {
         waitForList(results)
         key(KeyEvent.KEYCODE_DPAD_UP); expectFocus("cancel")
         screenshot(activity, "02-running-stop-focused")
+        // Reproduce a status read that has not returned. Cancellation must be
+        // acknowledged independently, without another catalog inspection, and
+        // the late read must not overwrite the acknowledged cancellation.
+        val releaseRead = CountDownLatch(1)
+        fake.blockedRead = releaseRead
+        instrument.runOnMainSync { app.refresh() }
+        assertTrue(fake.readEntered.await(5, TimeUnit.SECONDS))
+        val inspectionsBeforeCancel = fake.inspections.get()
+        try {
+            instrument.runOnMainSync {
+                assertTrue(tagged(activity, "cancel").isEnabled)
+                app.control("cancel-test")
+            }
+            assertTrue("Cancel queued behind a status read", fake.cancelReceived.await(2, TimeUnit.SECONDS))
+            repeat(40) { if (!app.snapshot.cancelRequested || app.cancelInFlight) Thread.sleep(50) }
+            assertTrue(app.snapshot.cancelRequested)
+            assertFalse(app.cancelInFlight)
+            assertEquals(inspectionsBeforeCancel, fake.inspections.get())
+        } finally { fake.blockedRead = null; releaseRead.countDown() }
+        waitForIdle(app)
+        assertTrue("Late status read replaced cancellation", app.snapshot.cancelRequested)
+        instrument.runOnMainSync { fake.snapshot = completed.copy(status = "cancelled", cancelRequested = true); app.poll() }
+        repeat(60) { if (app.snapshot.status != "cancelled") Thread.sleep(100) }
+        assertEquals("cancelled", app.snapshot.status)
+        assertTrue(app.notice.contains("Готовые результаты сохранены"))
+        assertFalse(app.notice.contains("Дождитесь"))
+        assertEquals(2, HistoryStore(context).load().results.size)
+        screenshot(activity, "02-cancelled")
         instrument.runOnMainSync { fake.snapshot = completed; app.refresh() }
         waitForIdle(app)
         instrument.runOnMainSync { results.requestFocus(); results.setSelection(0) }

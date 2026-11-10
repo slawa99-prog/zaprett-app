@@ -54,6 +54,21 @@ cd pocket-tv && ../gradlew testDebugUnitTest assembleDebug
 
 Проверки: unit-тесты парсинга и рейтинга; интеграционные тесты реального shell-моста; воспроизведение ошибки оригинального curl v71 и проверка резерва через настоящий resolver Pocket на Android 14; HTTPS с TLS 1.2/1.3 и отклонением недоверенного сертификата; тест кнопок пульта, сохранения результатов и сообщений об ошибке. Тестовый модуль не меняет firewall. Реальное ядро приставки, Magisk, NFQUEUE и работа видео требуют проверки на устройстве.
 
+## SV Pocket 1.2.2 — status and cancellation responsiveness
+
+- Startup reads module, updater and tester state in one root invocation. For an
+  initialized Pocket layout, process predicates replace the migrating CLI status
+  command. Catalog hashing uses one batch with the previous fingerprint format.
+- Cancellation has an independent executor and acknowledges the cancel flag
+  without inspecting the catalog. Late status reads cannot undo that acknowledgement.
+- The runner signals its verified, isolated tester process group immediately,
+  gives it four seconds to exit, then forces termination if needed. Pocket still
+  performs cleanup and restoration; network-dependent service startup can take time.
+- The interface distinguishes stopping network tests, cleanup, restarting the
+  previous service, and completion. Saved results and original strategy names remain.
+- Regression coverage includes stale status/cancel races, cancellation during a
+  blocked read, stubborn tester children, restoration, and catalog fingerprint compatibility.
+
 ## SV Pocket 1.2.1 — remote navigation fix
 
 The test actions have explicit left/right navigation: YouTube → All services →

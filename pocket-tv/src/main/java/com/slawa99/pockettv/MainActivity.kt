@@ -480,6 +480,8 @@ class MainActivity : Activity() {
         val canControl = app.changesAllowed && m.error.isEmpty()
         val awaiting = app.awaitingVideo
         status.text = when {
+            app.cancelInFlight -> "Отправляем команду остановки…"
+            s.active && s.cancelRequested -> s.headline()
             app.busy.isNotEmpty() -> app.busy
             app.error.isNotEmpty() -> "Не удалось выполнить действие. OK — подробности"
             u.installing -> "Обновление устанавливается. Не отключайте питание приставки."
@@ -495,7 +497,7 @@ class MainActivity : Activity() {
             b.isEnabled = when (key) {
                 "start", "stop", "restart", "help_repair" -> canControl
                 "test_youtube", "test_all" -> canControl && m.compatible && m.strategies.isNotEmpty()
-                "cancel" -> idle && s.active && s.status !in setOf("restoring", "cancelling")
+                "cancel" -> app.canCancel
                 "refresh", "read_log", "diagnose" -> idle && !u.installing
                 "video_yes" -> canControl && m.service == "running" && m.selected.isNotEmpty()
                 "video_no" -> idle

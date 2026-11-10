@@ -189,6 +189,9 @@ class TvNavigationTest {
             .findAccessibilityNodeInfosByText("адреса YouTube").isNotEmpty())
         shell("screencap -p /sdcard/Download/pocket-tv-qa/02-youtube-confirm.png")
         key(KeyEvent.KEYCODE_BACK)
+        // Dialog dismissal can leave the activity without window focus even
+        // after the event queue is idle; the next D-pad event would be lost.
+        waitForWindow(activity)
         key(KeyEvent.KEYCODE_DPAD_LEFT); expectFocus("nav_6")
         key(KeyEvent.KEYCODE_DPAD_RIGHT); expectFocus("test_youtube")
         key(KeyEvent.KEYCODE_DPAD_RIGHT); expectFocus("test_all")

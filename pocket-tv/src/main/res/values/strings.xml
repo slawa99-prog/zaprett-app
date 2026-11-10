@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">SV Pocket</string>
+    <string name="app_tagline">от мастера Святослава</string>
+    <string name="app_version">Версия %1$s</string>
+</resources>

@@ -13,3 +13,7 @@
 .externalNativeBuild
 .cxx
 local.properties
+/pocket-tv/build/
+/pocket-tv/src/main/jniLibs/
+/pocket-tv/src/main/assets/licenses/
+__pycache__/

@@ -1,0 +1,292 @@
+"""Exercise the real POSIX bridge against a fake Pocket CLI, without firewall changes."""
+import os
+import pathlib
+import subprocess
+import tempfile
+import time
+import unittest
+import hashlib
+import tarfile
+
+BRIDGE = pathlib.Path(__file__).resolve().parents[1] / 'src/main/assets/pocket_bridge.sh'
+FAKE = r'''#!/bin/sh
+mod="$POCKET_TV_MODULE"
+echo "$1" >> "$mod/calls"
+case "$1" in
+ status) cat "$mod/state"; [ "$(cat "$mod/state")" = running ] ;;
+ start|restart) echo running > "$mod/state" ;;
+ stop) echo stopped > "$mod/state" ;;
+ strategy) IFS= read -r name; printf '%s\n' "$name" > "$mod/config/current-strategy" ;;
+ test)
+   MODPATH="$mod"; . "$mod/common.sh"
+   downloader="$(resolve_downloader)" || { echo '! curl not found or not functional'; exit 1; }
+   echo "Using curl: $downloader"
+   [ "${FAKE_STUBBORN:-0}" != 1 ] || trap '' TERM
+   while IFS= read -r name; do
+     printf '@@TESTING %s\n' "$name"
+     sleep "${FAKE_TEST_DELAY:-0.2}"
+     printf '@@RESULT OK 3 4 2 4 4 4 %s\n' "$name"
+   done < "$ZAPRET_TEST_STRATEGIES"
+   exit "${FAKE_TEST_EXIT:-0}"
+   ;;
+esac
+'''
+COMMON = r'''resolve_downloader() {
+ for candidate in "$MODPATH/curl" "$(command -v curl)"; do
+  [ -x "$candidate" ] || continue
+  "$candidate" --version >/dev/null 2>&1 || continue
+  printf '%s\n' "$candidate"; return 0
+ done
+ return 1
+}
+'''
+
+class BridgeTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.base = pathlib.Path(self.tmp.name)
+        self.mod = self.base / 'module'
+        for directory in ['system/bin', 'config', 'strategy']:
+            (self.mod / directory).mkdir(parents=True)
+        (self.mod / 'module.prop').write_text('id=zapret\nauthor=sevcator\nversion=v71\nversionCode=71\n')
+        (self.mod / 'system/bin/zapret').write_text(FAKE)
+        (self.mod / 'common.sh').write_text(COMMON)
+        native = self.base / 'curl-native'
+        native.write_text('#!/bin/sh\necho "curl 8.22.0 Android OpenSSL/3.5.8"\necho "Protocols: http https"\n')
+        native.chmod(0o700)
+        certificates = self.base / 'ca.pem'
+        certificates.write_text('test certificate fixture\n')
+        (self.mod / 'state').write_text('running\n')
+        (self.mod / 'config/current-strategy').write_text('general\n')
+        self.names = ['general', "name's special $thing"]
+        for name in self.names:
+            (self.mod / 'strategy' / (name + '.sh')).write_text('# strategy\n')
+        self.env = dict(os.environ, POCKET_TV_STAGING=str(self.base / 'staging'), POCKET_TV_MODULE=str(self.mod), POCKET_TV_BASE=str(self.base / 'data'), POCKET_TV_SHELL='/bin/sh', POCKET_TV_CURL_SOURCE=str(native), POCKET_TV_CA_SOURCE=str(certificates))
+
+    def tearDown(self):
+        # A failed assertion must not leak the detached runner.
+        self.call('cancel-test', check=False)
+        try: self.done(timeout=20)
+        except AssertionError: pass
+        self.tmp.cleanup()
+
+    def call(self, *args, check=True):
+        return subprocess.run(['/bin/sh', str(BRIDGE), *args], env=self.env, capture_output=True, text=True, timeout=15, check=check)
+
+    def done(self, timeout=12):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            out = self.call('poll').stdout
+            if any('@@STATE ' + state in out for state in ['completed', 'cancelled', 'failed', 'interrupted', 'idle']):
+                return out
+            time.sleep(.15)
+        raise AssertionError(self.call('log').stdout)
+
+    def test_catalog_selects_literal_name_and_restarts(self):
+        out = self.call('inspect').stdout
+        self.assertIn('@@COMPATIBLE 1', out)
+        self.assertIn('@@STRATEGY ' + self.names[1], out)
+        self.call('apply', self.names[1])
+        self.assertEqual(self.names[1], (self.mod / 'config/current-strategy').read_text().strip())
+        self.assertEqual('restart', (self.mod / 'calls').read_text().splitlines()[-1])
+        self.assertNotEqual(0, self.call('apply', '../general', check=False).returncode)
+
+    def test_full_state_uses_readonly_predicates_and_preserves_catalog_fingerprint(self):
+        with (self.mod / 'common.sh').open('a') as out:
+            out.write('''
+service_is_running() { [ "$(cat "$MODPATH/state")" = running ]; }
+nfqws_is_running() { service_is_running; }
+dnscrypt_supervisor_is_running() { return 1; }
+dnscrypt_is_running() { return 1; }
+''')
+        for n in range(300):
+            (self.mod / 'strategy' / f'alt-{n:03}.sh').write_text(f'# strategy {n}\n')
+        # Compare with the previous fingerprint, including spaces, apostrophes
+        # and dollar signs: saved ratings must not become stale after this fix.
+        old = subprocess.check_output(['/bin/sh', '-c', '''
+{ sed -n 's/^versionCode=//p' "$POCKET_TV_MODULE/module.prop"
+for f in "$POCKET_TV_MODULE/strategy/"*.sh; do sha256sum "$f"; done
+} | sha256sum
+'''], env=self.env, text=True).split()[0]
+        state = self.call('state', 'full').stdout
+        self.assertIn('@@CATALOG_ID ' + old, state)
+        self.assertIn('@@SERVICE running', state)
+        self.assertEqual(302, state.count('@@STRATEGY '))
+        self.assertFalse((self.mod / 'calls').exists(), 'Status must not run the migrating CLI')
+        self.assertEqual(['UPDATE', 'MODULE', 'TEST', 'END'],
+                         [line.split()[-1] for line in state.splitlines() if line.startswith('@@SECTION ')])
+        quick = self.call('state', 'quick').stdout
+        self.assertNotIn('@@STRATEGY ', quick)
+        self.assertNotIn('@@CATALOG_ID ', quick)
+        self.assertIn('@@STATE idle', quick)
+        self.assertFalse((self.mod / 'calls').exists())
+
+    def test_detached_test_survives_client_exit_and_preserves_strategy(self):
+        self.call('launch-test', 'youtube', 'test-one')
+        out = self.done()
+        self.assertIn('@@STATE completed', out)
+        self.assertEqual(2, sum(line.startswith('@@RESULT ') for line in out.split('@@LOGTAIL')[0].splitlines()))
+        self.assertIn('@@RESTORE ok', out)
+        self.assertEqual('running', (self.mod / 'state').read_text().strip())
+        self.assertEqual('general', (self.mod / 'config/current-strategy').read_text().strip())
+        self.assertIn('@@ID test-one', self.call('poll').stdout)
+
+    def test_cancellation_and_busy_guard_restore_service(self):
+        self.env['FAKE_TEST_DELAY'] = '6'
+        self.call('launch-test', 'all', 'cancel-test')
+        self.assertNotEqual(0, self.call('apply', 'general', check=False).returncode)
+        self.assertNotEqual(0, self.call('launch-test', 'all', 'second', check=False).returncode)
+        calls_before = (self.mod / 'calls').read_text().splitlines().count('status')
+        reply = self.call('cancel-test').stdout
+        self.assertIn('@@CANCEL_REQUESTED 1', reply)
+        self.assertIn('@@STATE cancelled', self.done(timeout=8))
+        self.assertEqual(calls_before, (self.mod / 'calls').read_text().splitlines().count('status'))
+        self.assertEqual('running', (self.mod / 'state').read_text().strip())
+
+    def test_failure_keeps_results_and_stopped_service_stopped(self):
+        self.env['FAKE_TEST_EXIT'] = '7'
+        (self.mod / 'state').write_text('stopped\n')
+        self.call('launch-test', 'all', 'failure')
+        out = self.done()
+        self.assertIn('@@STATE failed', out)
+        self.assertIn('@@EXIT 7', out)
+        self.assertIn('@@RESULT OK', out)
+        self.assertEqual('stopped', (self.mod / 'state').read_text().strip())
+
+    def test_cancel_can_stop_a_tester_ignoring_term(self):
+        self.env['FAKE_STUBBORN'] = '1'
+        self.env['FAKE_TEST_DELAY'] = '30'
+        self.call('launch-test', 'all', 'stubborn')
+        self.call('cancel-test')
+        out = self.done(timeout=10)
+        self.assertIn('@@STATE cancelled', out)
+        self.assertEqual('running', (self.mod / 'state').read_text().strip())
+
+    def test_cancellation_exposes_restoration_without_losing_results(self):
+        cli = self.mod / 'system/bin/zapret'
+        cli.write_text(FAKE.replace('start|restart) echo running', 'start|restart) sleep 3; echo running'))
+        self.env['FAKE_TEST_DELAY'] = '30'
+        self.call('launch-test', 'all', 'restore-stage')
+        session = self.base / 'data/session'
+        with (session / 'test.log').open('a') as log:
+            log.write('@@RESULT OK 1 4 2 4 3 4 finished-before-cancel\n')
+        self.call('cancel-test')
+        deadline = time.monotonic() + 6
+        while time.monotonic() < deadline:
+            state = self.call('poll').stdout
+            if '@@STATE restoring' in state and '@@RESTORE_STEP start' in state:
+                break
+            time.sleep(.1)
+        self.assertIn('@@STATE restoring', state)
+        self.assertIn('@@CANCEL_REQUESTED 1', state)
+        self.assertIn('@@RESTORE_STEP start', state)
+        self.assertNotEqual(0, self.call('launch-test', 'all', 'must-wait', check=False).returncode)
+        final = self.done(timeout=8)
+        self.assertIn('@@STATE cancelled', final)
+        self.assertIn('@@RESULT OK 1 4 2 4 3 4 finished-before-cancel', final)
+        self.assertIn('@@RESTORE ok', final)
+
+    def test_stale_owner_is_not_running_or_killed(self):
+        self.call('launch-test', 'youtube', 'stale')
+        self.done()
+        session = self.base / 'data/session'
+        (session / 'state').write_text('running\n')
+        (session / 'owner').write_text(f'{os.getpid()} 1 previous-boot\n')
+        self.assertIn('@@STATE interrupted', self.call('poll').stdout)
+        self.assertNotEqual(0, self.call('cancel-test', check=False).returncode)
+
+    def test_wrong_module_is_rejected_without_actions(self):
+        (self.mod / 'module.prop').write_text('author=someone_else\n')
+        self.assertNotEqual(0, self.call('start', check=False).returncode)
+        self.assertFalse((self.mod / 'calls').exists())
+
+    def test_missing_termux_library_uses_bundled_runtime(self):
+        broken = self.mod / 'curl'
+        broken.write_text('#!/bin/sh\necho \'CANNOT LINK EXECUTABLE curl: library "libcurl.so" not found\' >&2\nexit 127\n')
+        broken.chmod(0o700)
+        self.call('launch-test', 'youtube', 'fallback')
+        self.assertIn('@@STATE completed', self.done())
+        log = self.call('log').stdout
+        self.assertIn('libcurl.so', log)
+        self.assertIn('Using curl: ' + str(self.base / 'data/runtime/curl'), log)
+        self.assertEqual('running', (self.mod / 'state').read_text().strip())
+
+    def test_preflight_failure_preserves_previous_results_and_service(self):
+        self.call('launch-test', 'youtube', 'previous')
+        self.assertIn('@@STATE completed', self.done())
+        calls = (self.mod / 'calls').read_text()
+        native = pathlib.Path(self.env['POCKET_TV_CURL_SOURCE'])
+        native.write_text('#!/bin/sh\necho "CANNOT LINK: missing dependency" >&2\nexit 127\n')
+        result = self.call('launch-test', 'youtube', 'must-not-replace', check=False)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn('сервис и прошлый рейтинг сохранены', result.stderr)
+        self.assertEqual(calls, (self.mod / 'calls').read_text())
+        out = self.call('poll').stdout
+        self.assertIn('@@ID previous', out)
+        self.assertIn('@@STATE completed', out)
+        self.assertEqual('running', (self.mod / 'state').read_text().strip())
+        self.assertIn('missing dependency', self.call('log').stdout)
+        self.assertIn('curl 8.22.0', subprocess.check_output([str(self.base / 'data/runtime/curl'), '--version'], text=True))
+
+class UpdateBridgeTest(BridgeTest):
+    # Only run update-specific cases in this subclass.
+    def test_update_is_detached_preserves_backup_and_requires_reboot(self):
+        package = self.base / 'pocket.zip'; package.write_bytes(b'fixture archive')
+        magisk = self.base / 'magisk'
+        magisk.write_text('\n'.join([
+            '#!/bin/sh', 'sleep 2',
+            'mkdir -p "$POCKET_TV_STAGING"',
+            'printf "id=zapret\\nversion=v72\\nversionCode=72\\nauthor=sevcator\\n" > "$POCKET_TV_STAGING/module.prop"',
+            'echo installed > "$POCKET_TV_MODULE/installer-called"', 'exit 0', ''
+        ])); magisk.chmod(0o700)
+        self.env['POCKET_TV_MAGISK'] = str(magisk)
+        digest = hashlib.sha256(package.read_bytes()).hexdigest()
+        self.call('install-update', str(package), '72', digest)
+        self.assertNotEqual(0, self.call('apply', 'general', check=False).returncode)
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            status = self.call('update-status').stdout
+            if '@@UPDATE_STATE pending_reboot' in status: break
+            time.sleep(.1)
+        self.assertIn('@@UPDATE_STATE pending_reboot', status)
+        self.assertNotEqual(0, self.call('launch-test', 'youtube', 'blocked', check=False).returncode)
+        self.assertNotEqual(0, self.call('install-update', str(package), '72', digest, check=False).returncode)
+        self.assertEqual('general', (self.mod / 'config/current-strategy').read_text().strip())
+        with tarfile.open(self.base / 'data/update/before-update.tar.gz') as archive:
+            self.assertEqual(b'general\n', archive.extractfile('./config/current-strategy').read())
+        (self.mod / 'module.prop').write_text((self.base / 'staging/module.prop').read_text())
+        (self.base / 'staging/module.prop').unlink()
+        (self.base / 'data/update/boot').write_text('previous-boot')
+        self.assertIn('@@UPDATE_STATE completed', self.call('update-status').stdout)
+
+    def test_bad_digest_and_downgrade_never_invoke_installer(self):
+        package = self.base / 'pocket.zip'; package.write_bytes(b'fixture')
+        magisk = self.base / 'magisk'; magisk.write_text('#!/bin/sh\ntouch "$POCKET_TV_MODULE/installer-called"\n'); magisk.chmod(0o700)
+        self.env['POCKET_TV_MAGISK'] = str(magisk)
+        self.assertNotEqual(0, self.call('install-update', str(package), '72', '0' * 64, check=False).returncode)
+        digest = hashlib.sha256(package.read_bytes()).hexdigest()
+        self.assertNotEqual(0, self.call('install-update', str(package), '71', digest, check=False).returncode)
+        self.assertFalse((self.mod / 'installer-called').exists())
+        self.assertEqual('running', (self.mod / 'state').read_text().strip())
+
+    def test_failed_installer_is_not_reported_as_ready_to_reboot(self):
+        package = self.base / 'pocket.zip'; package.write_bytes(b'fixture')
+        magisk = self.base / 'magisk'
+        magisk.write_text('#!/bin/sh\nmkdir -p "$POCKET_TV_STAGING"\nprintf "versionCode=72\\n" > "$POCKET_TV_STAGING/module.prop"\nexit 7\n'); magisk.chmod(0o700)
+        self.env['POCKET_TV_MAGISK'] = str(magisk)
+        self.call('install-update', str(package), '72', hashlib.sha256(package.read_bytes()).hexdigest())
+        self.assertIn('@@UPDATE_STATE failed', self.call('update-status').stdout)
+
+    def test_catalog_change_invalidates_previous_fingerprint(self):
+        before = next(x for x in self.call('inspect').stdout.splitlines() if x.startswith('@@CATALOG_ID '))
+        (self.mod / 'strategy/general.sh').write_text('# changed strategy\n')
+        after = next(x for x in self.call('inspect').stdout.splitlines() if x.startswith('@@CATALOG_ID '))
+        self.assertNotEqual(before, after)
+
+# Avoid rerunning the inherited lifecycle suite in the subclass.
+for name in list(BridgeTest.__dict__):
+    if name.startswith('test_') and name not in UpdateBridgeTest.__dict__:
+        setattr(UpdateBridgeTest, name, None)
+
+if __name__ == '__main__':
+    unittest.main(verbosity=2)

@@ -1,0 +1,23 @@
+<resources>
+    <style name="AppTheme" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:colorAccent">#35DED8</item>
+        <item name="android:colorControlHighlight">#4035DED8</item>
+        <item name="android:windowBackground">#080F17</item>
+        <item name="android:colorBackground">#14222D</item>
+        <item name="android:navigationBarColor">#080F17</item>
+        <item name="android:statusBarColor">#080F17</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:alertDialogTheme">@style/PocketDialog</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowActionModeOverlay">true</item>
+    </style>
+    <style name="PocketDialog" parent="android:style/Theme.Material.Dialog.Alert">
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:colorAccent">#35DED8</item>
+        <item name="android:colorBackground">#14222D</item>
+        <item name="android:textColorPrimary">#F1F7FA</item>
+        <item name="android:textColorSecondary">#ABC2CF</item>
+        <item name="android:windowBackground">@drawable/dialog_surface</item>
+    </style>
+</resources>

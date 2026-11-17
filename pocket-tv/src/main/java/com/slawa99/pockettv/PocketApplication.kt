@@ -75,6 +75,7 @@ class PocketApplication : Application() {
     fun remove(listener: () -> Unit) { listeners.remove(listener) }
     private fun notifyChanged() { listeners.toList().forEach { it() } }
     private fun appendLog(text: String) { operationLog = (operationLog + "\n" + text).takeLast(50000) }
+    private fun failureDetails(e: Exception) = (e as? RootCommandFailure)?.diagnostic ?: e.message.orEmpty()
     fun clearError() { error = ""; notifyChanged() }
     @Synchronized private fun persist(s: TestSnapshot, epoch: Int = stateEpoch) {
         if (epoch == stateEpoch && s.id.isNotEmpty()) history.save(s)
@@ -99,7 +100,7 @@ class PocketApplication : Application() {
                     if (update.phase == "completed") notice = "Обновление завершено. Каталог стратегий обновлён."
                 }
             } catch (e: Exception) {
-                main.post { if (epoch == stateEpoch) { connected = false; error = e.message.orEmpty(); appendLog(error) } }
+                main.post { if (epoch == stateEpoch) { connected = false; error = e.message.orEmpty(); appendLog(failureDetails(e)) } }
             }
         }
     }
@@ -118,7 +119,7 @@ class PocketApplication : Application() {
                     }
                 }
             } catch (e: Exception) {
-                main.post { error = e.message ?: "Не удалось остановить подбор"; notice = ""; appendLog(error) }
+                main.post { error = e.message ?: "Не удалось остановить подбор"; notice = ""; appendLog(failureDetails(e)) }
             } finally { main.post {
                 cancelInFlight = false; notifyChanged()
                 if (!connected && busy.isEmpty()) refresh()
@@ -197,7 +198,7 @@ class PocketApplication : Application() {
                         (if (m.service == "running") "Попробуйте перезапустить обход, затем откройте видео." else "Нажмите «Включить обход», затем проверьте видео."), true, phase = "repair")
             }
         } catch (e: Exception) {
-            main.post { if (epoch == stateEpoch) { connected = false; help = HelpReport("Не удалось подключить обход", e.message ?: "Проверьте разрешение суперпользователя для SV Pocket."); appendLog(e.message.orEmpty()) } }
+            main.post { if (epoch == stateEpoch) { connected = false; help = HelpReport("Не удалось проверить состояние обхода", e.message ?: "Проверьте разрешение суперпользователя для SV Pocket."); appendLog(failureDetails(e)) } }
         }
     }
     private fun probeInternet(): Boolean {
@@ -278,7 +279,7 @@ class PocketApplication : Application() {
                 }
                 val m = if (epoch == stateEpoch && (wasActive && !s.active || wasInstalling && !u.installing) && !u.installing) backend.inspect() else null
                 main.post { if (epoch == stateEpoch && m != null) { module = m; connected = true }; polling = false; notifyChanged() }
-            } catch (e: Exception) { main.post { polling = false; if (epoch == stateEpoch) error = "Не удалось обновить состояние: ${e.message}"; notifyChanged() } }
+            } catch (e: Exception) { main.post { polling = false; if (epoch == stateEpoch) { error = "Не удалось обновить состояние: ${e.message}"; appendLog(failureDetails(e)) }; notifyChanged() } }
         }
     }
     private fun operation(label: String, updateOperation: Boolean = false, finished: () -> Unit = {}, block: () -> Unit) {
@@ -286,7 +287,7 @@ class PocketApplication : Application() {
         busy = label; error = ""; notice = ""; notifyChanged()
         worker.execute {
             try { block() }
-            catch (e: Exception) { main.post { error = e.message ?: e.javaClass.simpleName; appendLog("$label\n$error") } }
+            catch (e: Exception) { main.post { error = e.message ?: e.javaClass.simpleName; appendLog("$label\n${failureDetails(e)}") } }
             finally { main.post { busy = ""; if (updateOperation) updateRequested = false; notifyChanged(); finished() } }
         }
     }

@@ -15,6 +15,7 @@ MAGISK_BIN="${POCKET_TV_MAGISK:-magisk}"
 
 fail() { printf '%s\n' "$*" >&2; exit 1; }
 field() { printf '@@%s %s\n' "$1" "$2"; }
+phase() { printf '@@PHASE %s\n' "$1" >&2; }
 value() { cat "$1" 2>/dev/null; }
 boot_id() { cat /proc/sys/kernel/random/boot_id; }
 start_token() { sed 's/.*) //' "/proc/$1/stat" 2>/dev/null | awk '{print $20}'; }
@@ -187,34 +188,55 @@ CURL_WRAPPER
     fi
     printf '\nSV Pocket: curl готов: %s\n' "$resolved" >> "$BASE/preflight.log"
 }
+process_service_status() {
+    # Reading state must never source common.sh or invoke the module CLI. One
+    # process snapshot replaces repeated pgrep calls and layout migrations.
+    processes="$(ps -A -o PID,ARGS 2>/dev/null)" || return 1
+    printf '%s\n' "$processes" | awk -v mod="$MOD" '
+        function basename(path) { sub(/^.*\//, "", path); return path }
+        $1 ~ /^[0-9]+$/ && NF >= 2 {
+            rows++
+            program=basename($2)
+            if (program == "nfqws" || program == "nfqws2") engine=1
+            if (program == "dnscrypt-proxy") dns=1
+            script=$2
+            if (program == "sh" || program == "bash" || program == "mksh" || program == "busybox") {
+                script=""
+                for (i=3; i<=NF; i++) {
+                    # A shell command string mentioning a path is not a service.
+                    if ($i == "-c") break
+                    if (substr($i,1,1) == "-" || $i == "sh") continue
+                    script=$i; break
+                }
+            }
+            if (script == mod "/zapret/zapret.sh" || script == mod "/zapret.sh") supervisor=1
+            if (script == mod "/dnscrypt/dnscrypt.sh" || script == mod "/dnscrypt.sh") dns=1
+        }
+        END {
+            if (!rows) exit 1
+            if (supervisor && engine) print "running"
+            else if (supervisor || engine || dns) print "degraded"
+            else print "stopped"
+        }'
+}
 service_status() {
-    # Pocket's CLI status runs layout/config migrations. Read the same process
-    # predicates without migrations on every app resume. Isolate sourced globals.
-    if [ -f "$MOD/config/current-strategy" ] && [ -d "$MOD/strategy" ] && [ -f "$MOD/common.sh" ]; then
-        fast_status="$("$SHELL_BIN" -c '
-            MODPATH="$1"; . "$MODPATH/common.sh"
-            for predicate in service_is_running nfqws_is_running dnscrypt_supervisor_is_running dnscrypt_is_running; do
-                command -v "$predicate" >/dev/null 2>&1 || exit 2
-            done
-            if service_is_running && nfqws_is_running; then echo running
-            elif service_is_running || nfqws_is_running || dnscrypt_supervisor_is_running || dnscrypt_is_running; then echo degraded
-            else echo stopped; fi
-        ' pocket-status "$MOD" 2>/dev/null)"
-        case "$fast_status" in running|degraded|stopped) printf '%s\n' "$fast_status"; return ;; esac
-    fi
-    # Older/uninitialised layouts still need Pocket's migration once.
-    "$SHELL_BIN" "$CLI" status 2>/dev/null | tail -n 1
+    command -v timeout >/dev/null 2>&1 || { printf 'Не найдена системная команда timeout.\n' >&2; return 1; }
+    timeout -s KILL 5 "$SHELL_BIN" "$0" service-state
 }
 inspect() {
+    phase module
     require_module
     update_in_progress && fail 'Идёт установка обновления. Дождитесь её завершения.'
-    svc="$(service_status)"
+    phase service
+    svc="$(service_status)" || fail 'Не удалось прочитать процессы модуля за 5 с. Этап: состояние сервиса. Откройте журнал.'
+    case "$svc" in running|degraded|stopped) ;; *) fail 'Не удалось определить состояние процессов модуля.' ;; esac
+    phase catalog
     field VERSION "$(sed -n 's/^version=//p' "$MOD/module.prop" | tr -d '\r')"
     field VERSION_CODE "$(version_code "$MOD")"
     field CATALOG_ID "$(catalog_id)"
     field SERVICE "$svc"
     field SELECTED "$(value "$MOD/config/current-strategy")"
-    field BOOT 1
+    if [ -f "$MOD/service.sh" ]; then field BOOT 1; else field BOOT 0; fi
     if grep -q '@@RESULT' "$CLI" && grep -q '@@TESTING' "$CLI"; then field COMPATIBLE 1; else field COMPATIBLE 0; fi
     catalog | while IFS= read -r name; do field STRATEGY "$name"; done
 }
@@ -249,13 +271,46 @@ poll() {
 read_state() {
     # One su invocation, with explicit section boundaries so logs cannot be
     # mistaken for module/test fields. No internet probes on this path.
+    phase root
+    phase update
     printf '@@SECTION UPDATE\n'
     update_status
     printf '\n@@SECTION MODULE\n'
     if [ "$1" = full ] && ! update_in_progress; then inspect; fi
     printf '@@SECTION TEST\n'
+    phase results
     poll
     printf '\n@@SECTION END\n'
+    phase complete
+}
+boot_diagnostics() {
+    printf '\n=== boot-status ===\n'
+    printf 'boot_id: %s\n' "$(boot_id)"
+    printf 'uptime: '; cat /proc/uptime 2>/dev/null
+    if command -v getprop >/dev/null 2>&1; then printf 'sys.boot_completed: %s\n' "$(getprop sys.boot_completed)"; fi
+    printf 'module version: %s\n' "$(version_code "$MOD")"
+    printf 'selected: %s\n' "$(value "$MOD/config/current-strategy")"
+    for name in service.sh disable remove; do
+        if [ -e "$MOD/$name" ]; then printf '%s: present\n' "$name"; else printf '%s: absent\n' "$name"; fi
+    done
+    printf 'process state: '; service_status || printf 'unavailable\n'
+    # Keep only module-related roles, never arbitrary process command lines or
+    # proxy credentials. This lets a report distinguish waiting startup from no
+    # startup process without executing any Pocket script.
+    timeout -s KILL 5 ps -A -o PID,ARGS 2>/dev/null | awk -v mod="$MOD" '
+        $1 ~ /^[0-9]+$/ {
+            for (i=2;i<=NF;i++) {
+                if ($i == mod "/service.sh") print "boot script pid:", $1
+                if ($i == mod "/system/bin/zapret" && ($(i+1) == "start" || $(i+1) == "restart"))
+                    print "startup pid:", $1, "action:", $(i+1)
+            }
+        }'
+    for file in "$MOD/.service/debug.log" "$MOD/config/debug.log"; do
+        [ -f "$file" ] || continue
+        printf '\n=== %s ===\n' "${file##*/}"
+        tail -n 120 "$file" 2>/dev/null
+    done
+    return 0
 }
 launch_test() {
     require_module
@@ -315,7 +370,11 @@ stop_test_child() {
 run_test() {
     identity "$$" > "$SESSION/owner"
     trap 'touch "$SESSION/cancel"' INT TERM
-    before="$(service_status)"
+    if ! before="$(service_status 2> "$SESSION/recovery.log")"; then
+        printf 'Не удалось прочитать состояние сервиса. Обход не изменён.\n' > "$SESSION/error"
+        write_state failed
+        return 1
+    fi
     printf '%s\n' "$before" > "$SESSION/before"
     printf 'SV Pocket: подготовка. Предыдущее состояние: %s\n' "$before" > "$SESSION/test.log"
     cat "$BASE/preflight.log" >> "$SESSION/test.log" 2>/dev/null
@@ -377,9 +436,11 @@ case "${1:-}" in
         [ -f "$STAGING/module.prop" ] || fail 'Нет обновления, ожидающего перезагрузки.'
         reboot ;;
     inspect) inspect ;;
+    service-state) process_service_status ;;
     state) case "${2:-}" in full|quick) read_state "$2" ;; *) fail 'Неизвестный режим состояния.' ;; esac ;;
     poll) poll ;;
     log)
+        boot_diagnostics
         printf '\n=== preflight.log ===\n'
         tail -n 80 "$BASE/preflight.log" 2>/dev/null
         for file in test.log recovery.log runner.log; do

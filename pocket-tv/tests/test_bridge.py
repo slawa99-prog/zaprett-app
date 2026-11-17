@@ -40,6 +40,13 @@ COMMON = r'''resolve_downloader() {
  return 1
 }
 '''
+FAKE_PS = r'''#!/bin/sh
+if [ -f "$POCKET_TV_MODULE/processes" ]; then cat "$POCKET_TV_MODULE/processes"; exit; fi
+printf 'PID COMMAND\n1 init\n'
+if [ "$(cat "$POCKET_TV_MODULE/state")" = running ]; then
+ printf '10 /system/bin/sh %s/zapret/zapret.sh\n11 %s/nfqws\n' "$POCKET_TV_MODULE" "$POCKET_TV_MODULE"
+fi
+'''
 
 class BridgeTest(unittest.TestCase):
     def setUp(self):
@@ -61,7 +68,10 @@ class BridgeTest(unittest.TestCase):
         self.names = ['general', "name's special $thing"]
         for name in self.names:
             (self.mod / 'strategy' / (name + '.sh')).write_text('# strategy\n')
+        self.bin = self.base / 'tools'; self.bin.mkdir()
+        (self.bin / 'ps').write_text(FAKE_PS); (self.bin / 'ps').chmod(0o700)
         self.env = dict(os.environ, POCKET_TV_STAGING=str(self.base / 'staging'), POCKET_TV_MODULE=str(self.mod), POCKET_TV_BASE=str(self.base / 'data'), POCKET_TV_SHELL='/bin/sh', POCKET_TV_CURL_SOURCE=str(native), POCKET_TV_CA_SOURCE=str(certificates))
+        self.env['PATH'] = str(self.bin) + os.pathsep + self.env['PATH']
 
     def tearDown(self):
         # A failed assertion must not leak the detached runner.
@@ -91,14 +101,12 @@ class BridgeTest(unittest.TestCase):
         self.assertEqual('restart', (self.mod / 'calls').read_text().splitlines()[-1])
         self.assertNotEqual(0, self.call('apply', '../general', check=False).returncode)
 
-    def test_full_state_uses_readonly_predicates_and_preserves_catalog_fingerprint(self):
-        with (self.mod / 'common.sh').open('a') as out:
-            out.write('''
-service_is_running() { [ "$(cat "$MODPATH/state")" = running ]; }
-nfqws_is_running() { service_is_running; }
-dnscrypt_supervisor_is_running() { return 1; }
-dnscrypt_is_running() { return 1; }
-''')
+    def test_startup_never_executes_module_and_preserves_catalog_fingerprint(self):
+        (self.mod / 'common.sh').write_text('echo source-called > "$MODPATH/common-called"\nexit 91\n')
+        # Even the migration fallback must not run, including on older layouts.
+        (self.mod / 'config/current-strategy').unlink()
+        cli = self.mod / 'system/bin/zapret'
+        cli.write_text(FAKE.replace('status) cat', 'status) sleep 30; cat'))
         for n in range(300):
             (self.mod / 'strategy' / f'alt-{n:03}.sh').write_text(f'# strategy {n}\n')
         # Compare with the previous fingerprint, including spaces, apostrophes
@@ -113,6 +121,7 @@ for f in "$POCKET_TV_MODULE/strategy/"*.sh; do sha256sum "$f"; done
         self.assertIn('@@SERVICE running', state)
         self.assertEqual(302, state.count('@@STRATEGY '))
         self.assertFalse((self.mod / 'calls').exists(), 'Status must not run the migrating CLI')
+        self.assertFalse((self.mod / 'common-called').exists())
         self.assertEqual(['UPDATE', 'MODULE', 'TEST', 'END'],
                          [line.split()[-1] for line in state.splitlines() if line.startswith('@@SECTION ')])
         quick = self.call('state', 'quick').stdout
@@ -120,6 +129,32 @@ for f in "$POCKET_TV_MODULE/strategy/"*.sh; do sha256sum "$f"; done
         self.assertNotIn('@@CATALOG_ID ', quick)
         self.assertIn('@@STATE idle', quick)
         self.assertFalse((self.mod / 'calls').exists())
+
+    def test_process_snapshot_classifies_services_without_matching_command_text(self):
+        path = self.mod / 'processes'
+        for processes, expected in [
+            (f'10 /system/bin/sh {self.mod}/zapret/zapret.sh\n11 {self.mod}/nfqws2', 'running'),
+            (f'10 /system/bin/sh {self.mod}/zapret/zapret.sh', 'degraded'),
+            ('11 /somewhere/dnscrypt-proxy', 'degraded'),
+            (f'10 /system/bin/sh -c echo {self.mod}/zapret/zapret.sh\n11 /system/bin/cat {self.mod}/nfqws', 'stopped'),
+            ('1 init', 'stopped'),
+        ]:
+            with self.subTest(expected=expected, processes=processes):
+                path.write_text('PID COMMAND\n' + processes + '\n')
+                self.assertIn('@@SERVICE ' + expected, self.call('inspect').stdout)
+        path.write_text('PID COMMAND\n')
+        self.assertNotEqual(0, self.call('inspect', check=False).returncode)
+
+    def test_hung_process_reader_is_bounded_and_does_not_change_service(self):
+        (self.bin / 'ps').write_text('#!/bin/sh\nexec sleep 30\n')
+        start = time.monotonic()
+        reply = self.call('state', 'full', check=False)
+        self.assertNotEqual(0, reply.returncode)
+        self.assertLess(time.monotonic() - start, 9)
+        self.assertIn('@@PHASE service', reply.stderr)
+        self.assertIn('состояние сервиса', reply.stderr)
+        self.assertFalse((self.mod / 'calls').exists())
+        self.assertEqual('running', (self.mod / 'state').read_text().strip())
 
     def test_detached_test_survives_client_exit_and_preserves_strategy(self):
         self.call('launch-test', 'youtube', 'test-one')

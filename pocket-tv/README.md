@@ -54,6 +54,25 @@ cd pocket-tv && ../gradlew testDebugUnitTest assembleDebug
 
 Проверки: unit-тесты парсинга и рейтинга; интеграционные тесты реального shell-моста; воспроизведение ошибки оригинального curl v71 и проверка резерва через настоящий resolver Pocket на Android 14; HTTPS с TLS 1.2/1.3 и отклонением недоверенного сертификата; тест кнопок пульта, сохранения результатов и сообщений об ошибке. Тестовый модуль не меняет firewall. Реальное ядро приставки, Magisk, NFQUEUE и работа видео требуют проверки на устройстве.
 
+## SV Pocket 1.2.3 — cold startup status
+
+- Reading status no longer sources Pocket `common.sh`, invokes its CLI, migrates
+  its layout, or repeatedly scans processes with `pgrep`. One bounded Android
+  process snapshot determines stopped/degraded/running using the module supervisor
+  and nfqws process names. No startup/stop/network commands run during inspection.
+- Non-interactive root commands close their stdin immediately. If a command still
+  times out, its last confirmed stage and partial response are retained in the
+  diagnostic log, with a brief explanation in the interface.
+- The journal includes boot uptime, module/strategy, boot-script presence, and
+  any still-running module startup command. The boot flag reflects the actual
+  service.sh file instead of an unconditional success value. This release does
+  not install a second boot service or change the module's startup policy.
+- Tests cover EOF-dependent shell commands, root-vs-module timeout diagnostics,
+  process classification, a hanging process reader, and cold inspection of full
+  original Pocket v71/v72 archives on Android 14 without modifying their files.
+- This removes blocking paths and improves diagnosis; the exact failing stage on
+  the reported Tanix/Magisk device was not available in the old 1.2.2 error.
+
 ## SV Pocket 1.2.2 — status and cancellation responsiveness
 
 - Startup reads module, updater and tester state in one root invocation. For an

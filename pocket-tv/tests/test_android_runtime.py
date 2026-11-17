@@ -14,6 +14,7 @@ import threading
 import time
 import urllib.request
 import zipfile
+from test_bridge import FAKE_PS
 
 PROJECT = pathlib.Path(__file__).resolve().parents[1]
 DEVICE = '/data/local/tmp/pocket-tv-runtime-qa'
@@ -99,15 +100,6 @@ with tempfile.TemporaryDirectory() as temp:
     with zipfile.ZipFile(release) as archive:
         (mod / 'common.sh').write_bytes(archive.read('common.sh'))
         (mod / 'curl').write_bytes(archive.read('curl-x86_64'))
-    # Keep the genuine downloader/resolver, but model service predicates for
-    # this firewall-free fixture, including the bridge's read-only status path.
-    with (mod / 'common.sh').open('a') as common:
-        common.write('''
-service_is_running() { [ "$(cat "$MODPATH/state")" = running ]; }
-nfqws_is_running() { service_is_running; }
-dnscrypt_supervisor_is_running() { return 1; }
-dnscrypt_is_running() { return 1; }
-''')
     (mod / 'module.prop').write_text('id=zapret\nauthor=sevcator\nversion=v71\n')
     (mod / 'state').write_text('running\n')
     (mod / 'config/current-strategy').write_text('fixture\n')
@@ -132,6 +124,37 @@ esac
 ''')
     push(mod, DEVICE + '/module')
     push(PROJECT / 'src/main/assets/pocket_bridge.sh', DEVICE + '/bridge.sh')
+    # Test cold startup against complete, unmodified Pocket archives using real
+    # Android ps/awk/sha256sum. No source or CLI of either module may be executed.
+    for version, stock_zip in [(71, release), (72, pathlib.Path('/tmp/pocket72-test.zip'))]:
+        stock = tmp / f'stock-{version}'; stock.mkdir()
+        with zipfile.ZipFile(stock_zip) as archive:
+            for name in archive.namelist():
+                assert not name.startswith('/') and '..' not in pathlib.PurePosixPath(name).parts
+            archive.extractall(stock)
+        remote = DEVICE + f'/stock-{version}'
+        push(stock, remote)
+        def fingerprint():
+            return shell('/system/bin/sh', '-c', 'tar -cf - -C "$1" . | sha256sum', 'fingerprint', remote).stdout.strip()
+        before = fingerprint()
+        started = time.monotonic()
+        cold = shell('env', f'POCKET_TV_MODULE={remote}', f'POCKET_TV_BASE={DEVICE}/stock-data-{version}',
+                     '/system/bin/sh', DEVICE + '/bridge.sh', 'state', 'full')
+        elapsed = time.monotonic() - started
+        assert '@@SERVICE stopped' in cold.stdout, cold.stdout
+        assert '@@STATE idle' in cold.stdout and '@@SECTION END' in cold.stdout, cold.stdout
+        assert '@@PHASE complete' in cold.stdout and '@@PHASE service' in cold.stdout, cold.stdout
+        assert cold.stdout.count('@@STRATEGY ') > 200, cold.stdout
+        assert fingerprint() == before, 'Startup modified the installed module'
+        assert elapsed < 15, f'Unexpected slow cold status: {elapsed:.2f}s'
+        note(f'Cold startup with unmodified Pocket v{version}: {elapsed:.2f}s; no module changes; no test started')
+
+    # The lifecycle fixture models running processes, while keeping the real
+    # module resolver. Only this fixture gets a fake ps through its private PATH.
+    fixtures = tmp / 'tools'; fixtures.mkdir()
+    (fixtures / 'ps').write_text(FAKE_PS.replace('#!/bin/sh', '#!/system/bin/sh', 1))
+    push(fixtures, DEVICE + '/tools')
+    shell('chmod', '700', DEVICE + '/tools/ps')
     shell('chmod', '700', DEVICE + '/module/curl')
     broken = shell(DEVICE + '/module/curl', '--version', check=False)
     assert broken.returncode != 0, 'Expected the v71 Termux executable to lack its libraries'
@@ -141,7 +164,7 @@ esac
 
     env = dict(POCKET_TV_MODULE=DEVICE + '/module', POCKET_TV_BASE=DEVICE + '/data',
                POCKET_TV_CURL_SOURCE=DEVICE + '/curl-native', POCKET_TV_CA_SOURCE=DEVICE + '/trusted.pem',
-               POCKET_TV_TEST_URL=f'https://localhost:{port}')
+               POCKET_TV_TEST_URL=f'https://localhost:{port}', PATH=DEVICE + '/tools:/system/bin:/system/xbin')
     def bridge(*args, check=True, overrides=None):
         variables = env | (overrides or {})
         return shell('env', *(f'{k}={v}' for k, v in variables.items()),

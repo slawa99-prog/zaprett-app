@@ -130,6 +130,17 @@ for f in "$POCKET_TV_MODULE/strategy/"*.sh; do sha256sum "$f"; done
         self.assertIn('@@STATE idle', quick)
         self.assertFalse((self.mod / 'calls').exists())
 
+    def test_uninitialized_catalog_reads_bundled_layout_without_migration(self):
+        (self.mod / 'strategy').rename(self.mod / 'zapret')
+        (self.mod / 'zapret/zapret.sh').write_text('# supervisor, not a strategy\n')
+        (self.mod / 'zapret/make-unkillable.sh').write_text('# helper, not a strategy\n')
+        (self.mod / 'common.sh').write_text('exit 91\n')
+        out = self.call('state', 'full').stdout
+        names = [line.removeprefix('@@STRATEGY ') for line in out.splitlines() if line.startswith('@@STRATEGY ')]
+        self.assertEqual(sorted(self.names), names)
+        self.assertFalse((self.mod / 'strategy').exists(), 'Reading must not migrate the layout')
+        self.assertFalse((self.mod / 'calls').exists())
+
     def test_process_snapshot_classifies_services_without_matching_command_text(self):
         path = self.mod / 'processes'
         for processes, expected in [

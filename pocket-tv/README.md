@@ -60,6 +60,8 @@ cd pocket-tv && ../gradlew testDebugUnitTest assembleDebug
   its layout, or repeatedly scans processes with `pgrep`. One bounded Android
   process snapshot determines stopped/degraded/running using the module supervisor
   and nfqws process names. No startup/stop/network commands run during inspection.
+  If the installed catalog is not initialized yet, bundled strategy files are
+  read directly from the original directory without triggering a migration.
 - Non-interactive root commands close their stdin immediately. If a command still
   times out, its last confirmed stage and partial response are retained in the
   diagnostic log, with a brief explanation in the interface.

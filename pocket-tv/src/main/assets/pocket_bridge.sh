@@ -63,8 +63,9 @@ idle_required() {
 catalog_id() {
     # Preserve the existing fingerprint, but start sha256sum once for the whole
     # catalog instead of hundreds of separate processes on a TV box.
+    directory="$(catalog_directory)"
     set --
-    for f in "$MOD/strategy/"*.sh; do [ ! -f "$f" ] || set -- "$@" "$f"; done
+    for f in "$directory/"*.sh; do [ ! -f "$f" ] || set -- "$@" "$f"; done
     { sed -n 's/^versionCode=//p' "$MOD/module.prop"; [ "$#" -eq 0 ] || sha256sum "$@"; } | sha256sum | awk '{print $1}'
 }
 version_code() { [ ! -f "$1/module.prop" ] || sed -n 's/^versionCode=//p' "$1/module.prop" | tr -d '\r'; }
@@ -143,8 +144,23 @@ run_update() {
         printf 'Обновление не завершено. Сохранена резервная копия; подробности выше.\n'
     fi
 }
+catalog_directory() {
+    # Installation normally copies the bundled scripts into strategy/. If boot
+    # has not initialized that directory yet, read the original layout directly.
+    # Never invoke common.sh just to populate the UI.
+    for directory in "$MOD/strategy" "$MOD/strategies" "$MOD/zapret"; do
+        for file in "$directory/"*.sh; do
+            [ -f "$file" ] || continue
+            case "${file##*/}" in zapret.sh|make-unkillable.sh) continue ;; esac
+            printf '%s\n' "$directory"
+            return
+        done
+    done
+    printf '%s\n' "$MOD/strategy"
+}
 catalog() {
-    for file in "$MOD/strategy/"*.sh; do
+    directory="$(catalog_directory)"
+    for file in "$directory/"*.sh; do
         [ -f "$file" ] || continue
         name="${file##*/}"; name="${name%.sh}"
         case "$name" in zapret|make-unkillable) continue ;; esac

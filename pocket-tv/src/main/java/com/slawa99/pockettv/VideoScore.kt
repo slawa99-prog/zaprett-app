@@ -5,6 +5,7 @@ internal data class VideoMark(val name: String, val status: String, val startMs:
     fun description() = when (status) {
         "pass" -> "Видео: 20 с без остановок · старт за " + java.lang.String.format(java.util.Locale.US, "%.1f", startMs / 1000.0) + " с"
         "stall" -> "Видео остановилось или буферизовалось"
+        "player_error" -> "Плеер не воспроизвёл видео с этой стратегией (ошибка 5)"
         "no_service" -> "Сервис не запустился с этой стратегией"
         else -> "Видео не начало воспроизводиться за отведённое время"
     }

@@ -44,7 +44,7 @@ private class QaVideoBackend(private val dir: File) : PocketBackend {
         check(session==sid.readText() && catalog=="qa-video")
         trace("$action $target")
         return when(action){
-            "try" -> if(target in (when { File(dir,"qa-real-player").exists() -> listOf("B-slow"); File(dir,"qa-second-group").exists() -> listOf("F-untested"); else -> listOf("B-slow","C-fast") })) { live.writeText(target); "ready" } else "no_service"
+            "try" -> if(target in (when { File(dir,"qa-real-player").exists() -> listOf("B-slow"); File(dir,"qa-second-group").exists() -> listOf("F-untested"); else -> listOf("B-slow","C-fast","D") })) { live.writeText(target); "ready" } else "no_service"
             "commit" -> {selected.writeText(target);live.writeText(target);"committed"}
             else -> {selected.writeText(original);live.writeText(if(action=="restore-off") "off" else original);"restored"}
         }

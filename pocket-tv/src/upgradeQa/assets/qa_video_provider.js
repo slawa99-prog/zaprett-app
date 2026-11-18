@@ -13,3 +13,5 @@ v.addEventListener('pause',function(){sv.state=2;});
 kick=function(){v.play().catch(askForGesture);};sv.ready=true;
 setTimeout(kick,svIndex===2?4500:100);
 readMedia=function(){sv.pos=v.currentTime;};
+
+if(svIndex===4)sv.error=5;

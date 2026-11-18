@@ -137,7 +137,7 @@ internal class VideoTournament(context: Context, private val worker: Executor, p
         if (v.phase!="playing" || token!=v.token) return
         when {
             status=="pass" && start in 1..35_000 -> record(VideoMark(v.owned,status,start))
-            status=="stall" || status=="timeout" -> record(VideoMark(v.owned,status))
+            status in setOf("stall","timeout","player_error") -> record(VideoMark(v.owned,status))
             else -> stop(reason.ifBlank { "Видеотест остановлен." },status=="pause")
         }
     }

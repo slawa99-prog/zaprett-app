@@ -73,6 +73,7 @@ until(lambda:record().get('p') in ('done','stopped','recover','paused'),130,'No 
 v=record();events=data('qa-events')
 assert v['p']=='done' and v['win']=='C-fast' and data('qa-selection')=='C-fast', (v,events)
 assert [x[0] for x in v['rows'] if x[1]=='pass']==['B-slow','C-fast'] and len(v['rows'])==5 and 'F-untested' not in events,(v,events)
+assert any(row[:2]==['D','player_error'] for row in v['rows']),v
 note('Full YouTube flow, seven ranked candidates: first five exercised, two visible 20 s media passes. C-fast applied, B-slow retained. '+str(v['rows']))
 screenshot('video-results-qa.png')
 sh('am','force-stop',PKG);launch();open_tests()

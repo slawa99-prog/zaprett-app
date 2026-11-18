@@ -105,6 +105,9 @@ class VideoProbeActivity : Activity() {
             val a=try { JSONArray(value) } catch(e:Exception) { return@evaluateJavascript }
             val err=a.optInt(2);val wait=a.optBoolean(1)
             if (err!=0) {
+                // HTML5 playback failure can be specific to this candidate. Unlike a
+                // missing/restricted clip or rejected app identity it doesn't end the group.
+                if (err==5) { end("player_error",""); return@evaluateJavascript }
                 val reason=when(err){
                     100,101,150->"YouTube не разрешил показать контрольный ролик."
                     153->"YouTube не принял данные приложения для встраивания."

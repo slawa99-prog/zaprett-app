@@ -86,12 +86,14 @@ v=record();events=data('qa-events')
 assert v['p']=='done' and v['win']=='C-fast' and data('qa-selection')=='C-fast', (v,events)
 assert [x[0] for x in v['rows'] if x[1]=='pass']==['B-slow','C-fast'] and len(v['rows'])==5 and 'F-untested' not in events,(v,events)
 assert any(row[:2]==['D','player_error'] for row in v['rows']),v
+assert v['clip']==1 and '101' in v['firstClipError'] and events.count('try B-slow')==2,(v,events)
+note('Embedding refusal retried B on the backup clip without scoring the refusal; that clip was retained for C.')
 note('Full YouTube flow, seven ranked candidates: first five exercised, two visible 20 s media passes. C-fast applied, B-slow retained. '+str(v['rows']))
 screenshot('video-results-qa.png')
 sh('am','force-stop',PKG);launch();open_tests()
 assert record()['win']=='C-fast'
 tap('Подбор: YouTube');tap('Только видеотест')
-until(lambda:record().get('p')=='playing',35,'Saved ranking not reusable')
+until(lambda:(lambda r:r.get('p')=='playing' and r.get('clip')==1)(record()),45,'Saved ranking not reusable')
 time.sleep(2);sh('input','keyevent','KEYCODE_HOME')
 until(lambda:record().get('p')=='paused',15,'Leaving visible player failed to restore')
 assert data('qa-selection')=='C-fast' and data('qa-live')=='C-fast' and data('qa-events').splitlines().count('network')==1
@@ -111,5 +113,5 @@ until(lambda:record().get('p') in ('playing','switch'),30,'Shipping player not s
 until(lambda:record().get('p') in ('done','stopped','recover','paused'),180,'Shipping player did not return')
 live=record()
 assert live.get('p') in ('done','stopped','paused'),live
-note('Actual YouTube IFrame, no Magisk or Russian ISP on this AOSP emulator: '+str({k:live.get(k) for k in ['p','msg','rows','win']}))
+note('Actual YouTube IFrame, no Magisk or Russian ISP on this AOSP emulator: '+str({k:live.get(k) for k in ['p','msg','rows','win','clip','firstClipError']}))
 adb('uninstall',PKG)

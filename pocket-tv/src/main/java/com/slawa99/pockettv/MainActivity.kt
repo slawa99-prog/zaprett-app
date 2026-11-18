@@ -87,7 +87,7 @@ class MainActivity : Activity() {
         return try {
             startActivityForResult(Intent(this,VideoProbeActivity::class.java)
                 .putExtra("token",t.token).putExtra("candidate",t.name).putExtra("index",t.index).putExtra("count",t.total)
-                .putExtra("network",t.network).putExtra("reply",reply),rc)
+                .putExtra("network",t.network).putExtra("clip",t.clip).putExtra("reply",reply),rc)
             true
         } catch(e:Exception){ probeRequests.remove(rc);false }
     }

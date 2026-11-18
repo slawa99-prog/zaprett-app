@@ -9,10 +9,10 @@ import org.json.JSONObject
 
 internal data class VideoRun(val id: String, val catalog: String, val original: String, val wasOn: Boolean,
     val queue: List<String>, val network: Long, val rows: List<VideoMark> = emptyList(), val phase: String = "ready",
-    val owned: String = "", val token: String = "", val message: String = "", val winner: String = "") {
+    val owned: String = "", val token: String = "", val message: String = "", val winner: String = "", val clip: Int = 0, val firstClipError: String = "") {
     fun encode() = JSONObject().put("id", id).put("cat", catalog).put("orig", original).put("on", wasOn)
         .put("q", JSONArray(queue)).put("net", network).put("p", phase).put("o", owned).put("t", token)
-        .put("msg", message).put("win", winner).put("rows", JSONArray().also { arr -> rows.forEach {
+        .put("clip", clip).put("firstClipError", firstClipError).put("msg", message).put("win", winner).put("rows", JSONArray().also { arr -> rows.forEach {
             arr.put(JSONArray().put(it.name).put(it.status).put(it.startMs).put(it.detail)) } }).toString()
     companion object {
         fun decode(s: String?): VideoRun? {
@@ -21,12 +21,12 @@ internal data class VideoRun(val id: String, val catalog: String, val original: 
             return VideoRun(o.getString("id"), o.getString("cat"), o.getString("orig"), o.getBoolean("on"),
                 (0 until q.length()).map(q::getString), o.getLong("net"), (0 until a.length()).map { i ->
                     val row = a.getJSONArray(i); VideoMark(row.getString(0),row.getString(1),row.getLong(2),row.optString(3))
-                }, o.getString("p"), o.optString("o"), o.optString("t"), o.optString("msg"), o.optString("win"))
+                }, o.getString("p"), o.optString("o"), o.optString("t"), o.optString("msg"), o.optString("win"),o.optInt("clip",0),o.optString("firstClipError"))
         }
     }
 }
 
-internal data class VideoTicket(val token: String, val name: String, val index: Int, val total: Int, val network: Long)
+internal data class VideoTicket(val token: String, val name: String, val index: Int, val total: Int, val network: Long, val clip: Int)
 
 internal class VideoTournament(context: Context, private val worker: Executor, private val main: Handler,
     private val command: (String, VideoRun, String) -> String, private val changed: (Boolean) -> Unit) {
@@ -111,7 +111,7 @@ internal class VideoTournament(context: Context, private val worker: Executor, p
             else if (outcome != "ready") handleFailure(outcome)
             else {
                 store(run!!.copy(phase="playing"))
-                val launched = host?.invoke(VideoTicket(trial.token,name,trial.rows.size+1,trial.queue.size,trial.network)) == true
+                val launched = host?.invoke(VideoTicket(trial.token,name,trial.rows.size+1,trial.queue.size,trial.network,trial.clip)) == true
                 if (!launched) stop("Видеоплеер не открыт. Вернитесь к видеотесту.", true)
                 else changed(false)
             }
@@ -127,15 +127,28 @@ internal class VideoTournament(context: Context, private val worker: Executor, p
     private fun record(mark: VideoMark) {
         val v=run ?: return
         store(v.copy(rows=v.rows + mark,phase="ready",token="")); changed(false)
+        pauseIfHidden(v.id)
+    }
+    private fun pauseIfHidden(id: String) {
         // Activity results can reach us just before MainActivity resumes. If Home won
         // that race, don't leave the last trial running unattended.
-        main.postDelayed({ if(host==null && run?.phase=="ready" && run?.id==v.id)
+        main.postDelayed({ if(host==null && run?.phase=="ready" && run?.id==id)
             stop("Видеотест приостановлен при выходе из приложения.",true) },2500)
     }
     fun result(token: String, status: String, start: Long, reason: String) {
         val v=run ?: return
         if (v.phase!="playing" || token!=v.token) return
         when {
+            status=="clip_unavailable" && v.clip==0 && v.rows.none { it.passed } -> {
+                // Retry the SAME candidate from a fresh process; the rejected clip is not
+                // a negative score and its startup latency must not affect the comparison.
+                store(v.copy(phase="ready",clip=1,firstClipError=reason,token="",message="Пробуем резервный ролик YouTube."))
+                changed(false);pauseIfHidden(v.id)
+            }
+            status=="clip_unavailable" -> {
+                val detail=if(v.firstClipError.isBlank()) reason else "основной: ${v.firstClipError}; резервный: $reason"
+                stop("YouTube не разрешил воспроизведение контрольного ролика ($detail). Стратегия не оценена.",false)
+            }
             status=="pass" && start in 1..35_000 -> record(VideoMark(v.owned,status,start))
             status in setOf("stall","timeout","player_error") -> record(VideoMark(v.owned,status,detail=reason.take(140)))
             else -> stop(reason.ifBlank { "Видеотест остановлен." },status=="pause")

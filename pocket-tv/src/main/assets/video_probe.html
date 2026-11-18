@@ -9,6 +9,6 @@ function askForGesture(){sv.blocked=true;var b=document.getElementById("gesture"
 function clearGesture(){sv.blocked=false;document.getElementById("gesture").hidden=true;}
 document.getElementById("gesture").onclick=function(){clearGesture();kick();};
 function svRead(){try{readMedia();}catch(e){}return [sv.ready,sv.blocked,sv.error,sv.state,Number(sv.pos)||0];}
-var svIndex=__SV_INDEX__;
+var svIndex=__SV_INDEX__,svClip=__SV_CLIP__;
 __SV_PROVIDER__
 </script></body></html>

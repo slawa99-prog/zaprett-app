@@ -54,6 +54,7 @@ class VideoProbeActivity : Activity() {
         val panel=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(pad,0,0,0); gravity=Gravity.CENTER_VERTICAL }
         panel.addView(label("Проверяется: " + intent.getStringExtra("candidate"),22f))
         panel.addView(label("Кандидат $idx из $endGroup · группа ${(idx-1)/5+1}",15f))
+        if(intent.getIntExtra("clip",0)==1) panel.addView(label("Резервный контрольный ролик",14f,Color.rgb(115,247,210)))
         status=label("Открываем видеоплеер…",16f)
         panel.addView(status)
         stop=Button(this).apply { text="Остановить видеотест"; isAllCaps=false; tag="stop_video"; setOnClickListener { end("stop","Видеотест остановлен.") } }
@@ -91,6 +92,7 @@ class VideoProbeActivity : Activity() {
             val base="https://"+packageName.lowercase(java.util.Locale.ROOT)+"/"
             val html=assets.open("video_probe.html").bufferedReader().use{it.readText()}
                 .replace("__SV_INDEX__",intent.getIntExtra("index",1).toString())
+                .replace("__SV_CLIP__",intent.getIntExtra("clip",0).coerceIn(0,1).toString())
                 .replace("__SV_PROVIDER__",assets.open((application as PocketApplication).videoProviderAsset()).bufferedReader().use{it.readText()})
             loadedAt=clock; meter=VideoMeter(loadedAt); loaded=true
             w.loadDataWithBaseURL(base,html,"text/html","UTF-8",null)
@@ -107,9 +109,9 @@ class VideoProbeActivity : Activity() {
             if (err!=0) {
                 // HTML5 playback failure can be specific to this candidate. Unlike a
                 // missing/restricted clip or rejected app identity it doesn't end the group.
+                if (err in setOf(100,101,150)) { end("clip_unavailable","код $err"); return@evaluateJavascript }
                 if (err==5) { end("player_error",""); return@evaluateJavascript }
                 val reason=when(err){
-                    100,101,150->"YouTube не разрешил показать контрольный ролик."
                     153->"YouTube не принял данные приложения для встраивания."
                     else->"Плеер YouTube сообщил об ошибке $err."
                 }

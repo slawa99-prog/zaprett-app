@@ -1,5 +1,5 @@
-// Public YouTube IFrame API demo clip. No extraction, credentials, ads or transport overrides.
-var yt, videoId='M7lc1UVf-VE';
+// Official Blender open movie and the public YouTube IFrame API demo. No extraction, credentials, ads or transport overrides.
+var yt, videoId=['aqz-KE-bpKQ','M7lc1UVf-VE'][svClip];
 function onYouTubeIframeAPIReady(){
   yt=new YT.Player('player',{width:'100%',height:'100%',videoId:videoId,
     playerVars:{playsinline:1,controls:1,origin:location.origin},

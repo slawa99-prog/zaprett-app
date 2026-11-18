@@ -10,6 +10,9 @@ interface PocketBackend {
     fun poll(): TestSnapshot
     fun command(command: String, argument: String = ""): String
     fun launch(profile: String): String
+    fun launchWithId(profile: String, id: String): String = launch(profile)
+    fun videoTransition(action: String, session: String, catalog: String, original: String, target: String): String =
+        error("Видеотест недоступен")
     fun log(): String
     fun updateStatus(): ModuleUpdateState = ModuleUpdateState()
     fun readState(includeModule: Boolean = true): BackendState {
@@ -52,9 +55,17 @@ class RootBackend(private val context: Context) : PocketBackend {
         }
         return run(command, *if (argument.isEmpty()) emptyArray() else arrayOf(argument), timeout = 300)
     }
-    override fun launch(profile: String): String {
+    override fun videoTransition(action: String, session: String, catalog: String, original: String, target: String): String {
+        require(action in setOf("try", "commit", "restore-on", "restore-off") && session.matches(Regex("[A-Za-z0-9-]{1,100}")))
+        require(catalog.matches(Regex("[0-9a-f]{64}")) && PocketProtocol.safeName(original) && PocketProtocol.safeName(target))
+        val out = run("video-transition", action, session, catalog, original, target, timeout = 240)
+        return out.lineSequence().singleOrNull { it.startsWith("@@VIDEO ") }?.substringAfter(' ')
+            ?: error("Модуль не подтвердил результат видеотеста.")
+    }
+    override fun launch(profile: String) = launchWithId(profile, UUID.randomUUID().toString())
+    override fun launchWithId(profile: String, id: String): String {
         require(profile in setOf("youtube", "all"))
-        return run("launch-test", profile, UUID.randomUUID().toString(), timeout = 45, native = NativeRuntime.prepare(context))
+        return run("launch-test", profile, id, timeout = 45, native = NativeRuntime.prepare(context))
     }
     override fun log(): String = run("log", timeout = 30)
     override fun updateStatus() = ModuleUpdateState.parse(run("update-status", timeout = 25))

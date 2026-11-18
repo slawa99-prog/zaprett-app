@@ -92,6 +92,26 @@ class BridgeTest(unittest.TestCase):
             time.sleep(.15)
         raise AssertionError(self.call('log').stdout)
 
+    def test_video_trials_do_not_change_boot_choice_and_only_commit_a_verified_target(self):
+        meta = self.call('inspect').stdout
+        digest = next(l.split(' ',1)[1] for l in meta.splitlines() if l.startswith('@@CATALOG_ID '))
+        session=self.base/'data/session'; session.mkdir(parents=True)
+        for key,val in dict(id='trial-1',state='completed',profile='youtube',**{'catalog-id':digest}).items():
+            (session/key).write_text(val+'\n')
+        original='general'; other=self.names[1]
+        def switch(act,goal=other,cat=digest):
+            return self.call('video-transition',act,'trial-1',cat,original,goal).stdout
+        self.assertIn('@@VIDEO ready',switch('try'))
+        self.assertEqual(original,(self.mod/'config/current-strategy').read_text().strip())
+        self.assertIn('@@VIDEO changed',switch('commit',cat='old'))
+        self.assertIn('@@VIDEO restored',switch('restore-off'))
+        self.assertEqual('stopped',(self.mod/'state').read_text().strip())
+        self.assertIn('@@VIDEO ready',switch('try'))
+        self.assertIn('@@VIDEO committed',switch('commit'))
+        self.assertEqual(other,(self.mod/'config/current-strategy').read_text().strip())
+        self.assertEqual('running',(self.mod/'state').read_text().strip())
+        self.assertIn('@@VIDEO changed',switch('try',original))
+
     def test_catalog_selects_literal_name_and_restarts(self):
         out = self.call('inspect').stdout
         self.assertIn('@@COMPATIBLE 1', out)

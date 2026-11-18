@@ -522,6 +522,60 @@ run_test() {
     fi
 }
 
+# A video trial changes the live service, not the strategy selected for the next boot.
+# Pocket 71/72 reads the selection when it starts; "strategy" alone does not restart it.
+video_select() {
+    [ "$(value "$MOD/config/current-strategy")" = "$1" ] && return 0
+    printf '%s\n' "$1" | "$SHELL_BIN" "$CLI" strategy >/dev/null &&
+        [ "$(value "$MOD/config/current-strategy")" = "$1" ]
+}
+video_transition() {
+    action=$1; session=$2; fingerprint=$3; original=$4; wanted=$5
+    case "$action" in try|commit|restore-on|restore-off) ;; *) fail 'Неизвестная операция видеотеста.' ;; esac
+    require_module; acquire; idle_required
+    case "$(version_code "$MOD")" in 71|72) ;; *) field VIDEO changed; return ;; esac
+    if [ -z "$session" ] || [ "$(value "$SESSION/id")" != "$session" ] ||
+       [ "$(value "$SESSION/state")" != completed ] || [ "$(value "$SESSION/profile")" != youtube ] ||
+       [ "$(value "$SESSION/catalog-id")" != "$fingerprint" ] || [ "$(catalog_id)" != "$fingerprint" ]; then
+        field VIDEO changed; return
+    fi
+    names=$(catalog)
+    for n in "$original" "$wanted"; do
+        case "$n" in ''|*/*|.|..) fail 'Недопустимое название стратегии.' ;; esac
+        printf '%s\n' "$names" | grep -Fx -- "$n" >/dev/null || { field VIDEO changed; return; }
+    done
+    chosen=$(value "$MOD/config/current-strategy")
+    if [ "$chosen" != "$original" ]; then
+        case "$action" in restore-*) [ "$chosen" = "$wanted" ] || { field VIDEO changed; return; } ;;
+            *) field VIDEO changed; return ;; esac
+    fi
+    before=$(service_status) || fail 'Не удалось проверить состояние перед видеотестом.'
+    case "$before" in stopped) run=start ;; running|degraded) run=restart ;; *) fail 'Неизвестное состояние сервиса.' ;; esac
+    case "$action" in
+        try)
+            # Best-effort cleanup on signals, and a checked cleanup on the normal path.
+            ( trap 'if [ "$(value "$MOD/config/current-strategy")" = "$wanted" ]; then video_select "$original"; fi' EXIT
+              trap 'exit 1' HUP INT TERM
+              video_select "$wanted" || exit 1
+              ok=0
+              if "$SHELL_BIN" "$CLI" "$run" >/dev/null && [ "$(service_status)" = running ]; then ok=1; fi
+              [ "$(value "$MOD/config/current-strategy")" = "$wanted" ] && video_select "$original" || exit 1
+              if [ "$ok" = 1 ]; then field VIDEO ready; else field VIDEO no_service; fi ) ;;
+        commit)
+            video_select "$wanted" && "$SHELL_BIN" "$CLI" "$run" >/dev/null &&
+                [ "$(service_status)" = running ] && [ "$(value "$MOD/config/current-strategy")" = "$wanted" ] ||
+                fail 'Не удалось включить победителя видеотеста.'
+            field VIDEO committed ;;
+        restore-on|restore-off)
+            video_select "$original" || fail 'Не удалось вернуть сохранённую стратегию.'
+            if [ "$action" = restore-on ]; then
+                "$SHELL_BIN" "$CLI" "$run" >/dev/null && [ "$(service_status)" = running ] || fail 'Не удалось восстановить прежний обход.'
+            elif [ "$before" != stopped ]; then
+                "$SHELL_BIN" "$CLI" stop >/dev/null && [ "$(service_status)" = stopped ] || fail 'Не удалось вернуть выключенное состояние.'
+            fi
+            field VIDEO restored ;;
+    esac
+}
 [ "$(id -u)" = 0 ] || fail 'Нет root-доступа. Разрешите SV Pocket права суперпользователя в Magisk.'
 case "${1:-}" in
     update-status) update_status ;;
@@ -533,6 +587,7 @@ case "${1:-}" in
         active && fail 'Сначала завершите подбор стратегий.'
         [ -f "$STAGING/module.prop" ] || fail 'Нет обновления, ожидающего перезагрузки.'
         reboot ;;
+    video-transition) video_transition "$2" "$3" "$4" "$5" "$6" ;;
     inspect) inspect ;;
     auto-fast-start) auto_fast_start ;;
     fast-start) require_module; acquire; idle_required; set_fast_start "$2" ;;

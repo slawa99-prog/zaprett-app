@@ -74,7 +74,7 @@ jobs:
       - uses: android-actions/setup-android@v4
       - uses: actions/checkout@v4
         with:
-          ref: b843d8a0273368cca1e298ca70807329cf8fe9fe
+          ref: feae41ebea774b92c6eac56c3251acb5651bfa3b
           path: qa-previous
       - name: Build previous release with the same CI test signature
         working-directory: qa-previous/pocket-tv
@@ -106,10 +106,11 @@ jobs:
             python3 pocket-tv/tests/test_android_runtime.py
             bash pocket-tv/tests/run_device_tests.sh
             python3 pocket-tv/tests/test_apk_upgrade.py
+            python3 pocket-tv/tests/test_video_tournament.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: sv-pocket-1.2.5
+          name: sv-pocket-1.2.6
           path: |
             pocket-tv/build/outputs/apk/debug/*.apk
             pocket-tv/build/reports/

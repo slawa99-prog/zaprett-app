@@ -28,6 +28,16 @@ open class PocketApplication : Application() {
     private lateinit var history: HistoryStore
     private val prefs by lazy { getSharedPreferences("friendly", MODE_PRIVATE) }
     private val backend by lazy { backendFactory?.invoke(this) ?: RootBackend(this) }
+    internal val video: VideoTournament by lazy {
+        VideoTournament(this,worker,main,{ action, run, target ->
+            backend.videoTransition(action,run.id,run.catalog,run.original,target)
+        },{ refreshState ->
+            notifyChanged()
+            if (refreshState) refresh()
+        })
+    }
+    internal val canTickVideo get() = busy.isEmpty() && !polling && !cancelInFlight && !updateRequested &&
+        connected && !snapshot.active && !update.blocksChanges
     private val updater by lazy { ModuleUpdates(this) }
     var module = ModuleInfo(); private set
     var snapshot = TestSnapshot(); private set
@@ -51,7 +61,7 @@ open class PocketApplication : Application() {
     var cancelInFlight = false; private set
     private val tried = linkedSetOf<String>()
     private val listeners = mutableSetOf<() -> Unit>()
-    val changesAllowed get() = busy.isEmpty() && !cancelInFlight && !updateRequested && !update.blocksChanges && connected && !snapshot.active
+    val changesAllowed get() = !video.locksControls && busy.isEmpty() && !cancelInFlight && !updateRequested && !update.blocksChanges && connected && !snapshot.active
     val canCancel get() = snapshot.active && !snapshot.cancelRequested && !cancelInFlight &&
         snapshot.status !in setOf("restoring", "cancelling") && !updateRequested && !update.installing &&
         (busy.isEmpty() || busy == STATE_CHECK)
@@ -69,10 +79,17 @@ open class PocketApplication : Application() {
     val selectedConfirmed get() = canRestore && confirmedName == module.selected
     val nextStrategy: String? get() {
         val ranked = if (snapshot.matches(module)) snapshot.ranked.filter { it.fraction > 0 }.map { it.name } else emptyList()
-        return (ranked + module.strategies).distinct().firstOrNull { it != module.selected && it !in tried && it in module.strategies }
+        val verified = video.run?.takeIf { video.matches(snapshot,module) }?.let { VideoRank.winners(it.rows).map { row -> row.name } }.orEmpty()
+        return (verified + ranked + module.strategies).distinct().firstOrNull { it != module.selected && it !in tried && it in module.strategies }
     }
+    internal open fun videoProviderAsset() = "video_provider.js"
     override fun onCreate() {
-        super.onCreate(); history = HistoryStore(this); snapshot = history.load(); release = updater.cached()
+        super.onCreate()
+        if (Application.getProcessName() == packageName + ":videoprobe") {
+            android.webkit.WebView.setDataDirectorySuffix("sv_video_probe")
+            return
+        }
+        history = HistoryStore(this); snapshot = history.load(); release = updater.cached()
     }
     fun observe(listener: () -> Unit) { listeners.add(listener); listener() }
     fun remove(listener: () -> Unit) { listeners.remove(listener) }
@@ -213,7 +230,10 @@ open class PocketApplication : Application() {
         }
     }
     fun launch(profile: String) = operation("Готовим подбор стратегий…") {
-        val output = backend.launch(profile); val state = backend.poll(); persist(state)
+        val id = java.util.UUID.randomUUID().toString()
+        video.armed = if (profile == "youtube") id else ""
+        val output = backend.launchWithId(profile,id)
+        val state = backend.poll(); persist(state)
         main.post {
             tried.clear(); appendLog(output); accept(state)
             notice = if (state.active) "Подбор продолжится и при закрытии приложения." else state.headline()
@@ -348,7 +368,7 @@ open class PocketApplication : Application() {
         }
     }
     private fun operation(label: String, updateOperation: Boolean = false, finished: () -> Unit = {}, block: () -> Unit) {
-        if (busy.isNotEmpty() || cancelInFlight || updateRequested && !updateOperation) return
+        if (busy.isNotEmpty() || cancelInFlight || updateRequested && !updateOperation || video.locksControls && label != STATE_CHECK) return
         busy = label; error = ""; notice = ""; notifyChanged()
         worker.execute {
             try { block() }
@@ -356,6 +376,6 @@ open class PocketApplication : Application() {
             finally { main.post { busy = ""; if (updateOperation) updateRequested = false; notifyChanged(); finished() } }
         }
     }
-    fun diagnosticText(): String = "SV Pocket ${BuildConfig.VERSION_NAME}\nPocket ${module.version}\nСервис: ${module.service}\nСтратегия: ${module.selected}\nСессия: ${snapshot.id}\n${snapshot.headline()}\n${snapshot.completed}/${snapshot.total}\nОбновление: ${update.phase} v${update.version}\nБыстрый запуск: ${if (automaticFastStart) "автоматически" else "обычный"}; ${prefs.getString("fast_start_last", "автопроверка ещё не выполнялась")}\n\n$error\n\n$operationLog\n\n${update.detail}\n\n${fullLog.ifEmpty { snapshot.tail }}"
+    fun diagnosticText(): String = "SV Pocket ${BuildConfig.VERSION_NAME}\nPocket ${module.version}\nСервис: ${module.service}\nСтратегия: ${module.selected}\nСессия: ${snapshot.id}\n${snapshot.headline()}\n${snapshot.completed}/${snapshot.total}\nВидеотест: ${video.run?.let { "${it.phase} · ${it.rows.size}/${it.queue.size} · ${it.message}" } ?: "не запускался"}\nОбновление: ${update.phase} v${update.version}\nБыстрый запуск: ${if (automaticFastStart) "автоматически" else "обычный"}; ${prefs.getString("fast_start_last", "автопроверка ещё не выполнялась")}\n\n$error\n\n$operationLog\n\n${update.detail}\n\n${fullLog.ifEmpty { snapshot.tail }}"
     fun serviceLabel(status: String) = when (status) { "running" -> "включён"; "stopped" -> "выключен"; "degraded" -> "нужен перезапуск"; else -> "состояние неизвестно" }
 }

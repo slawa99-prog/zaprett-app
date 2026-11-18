@@ -1,0 +1,14 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<style>html,body{width:100%;height:100%;margin:0;background:#081317;color:white;font:16px sans-serif}body{display:flex;flex-direction:column}#box{width:100%;flex:1;min-height:0}#player,#box iframe,#box video{width:100%;height:100%;border:0}button{margin:0;padding:9px;background:#abf9e5;color:#10241f;font-weight:bold}button[hidden]{display:none}</style></head>
+<body><div id="box"><div id="player"></div></div><button id="gesture" hidden>▶ Запустить ролик · OK на пульте</button>
+<script>
+"use strict";
+var sv={ready:false,blocked:false,error:0,state:-1,pos:0},kick=function(){},readMedia=function(){};
+function askForGesture(){sv.blocked=true;var b=document.getElementById("gesture");b.hidden=false;b.focus();}
+function clearGesture(){sv.blocked=false;document.getElementById("gesture").hidden=true;}
+document.getElementById("gesture").onclick=function(){clearGesture();kick();};
+function svRead(){try{readMedia();}catch(e){}return [sv.ready,sv.blocked,sv.error,sv.state,Number(sv.pos)||0];}
+var svIndex=__SV_INDEX__;
+__SV_PROVIDER__
+</script></body></html>

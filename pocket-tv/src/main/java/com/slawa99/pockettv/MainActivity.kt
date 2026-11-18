@@ -64,6 +64,42 @@ class MainActivity : Activity() {
     private var adapter: StrategyAdapter? = null
     private var journal: TextView? = null
     private val observer: () -> Unit = { render() }
+    private var resumed = false
+    private val videoTick = Runnable {
+        if (resumed && !isFinishing) app.video.tick(app.snapshot,app.module,app.canTickVideo,hasWindowFocus(),videoNetwork())
+    }
+    private fun requestVideoTick() {
+        if (resumed) { app.main.removeCallbacks(videoTick); app.main.post(videoTick) }
+    }
+    private fun showVideo(t: VideoTicket): Boolean {
+        if (!resumed || !hasWindowFocus() || isFinishing) return false
+        val applicationState = app
+        val reply=object : android.os.ResultReceiver(app.main) {
+            override fun onReceiveResult(resultCode:Int,data:Bundle?) {
+                if (data!=null) applicationState.video.result(data.getString("token").orEmpty(),data.getString("code").orEmpty(),
+                    data.getLong("ms"),data.getString("reason").orEmpty())
+            }
+        }
+        return try {
+            startActivityForResult(Intent(this,VideoProbeActivity::class.java)
+                .putExtra("token",t.token).putExtra("candidate",t.name).putExtra("index",t.index).putExtra("count",t.total)
+                .putExtra("network",t.network).putExtra("reply",reply), 426)
+            true
+        } catch(e:Exception){ false }
+    }
+    @Deprecated("Framework activity result")
+    override fun onActivityResult(requestCode:Int,resultCode:Int,data:Intent?) {
+        super.onActivityResult(requestCode,resultCode,data)
+        if(requestCode!=426)return
+        val r=app.video.run ?: return
+        if (data==null) {
+            if (r.phase=="playing") app.video.result(r.token,"pause",0,"Плеер был закрыт системой.")
+        } else app.video.result(data.getStringExtra("token").orEmpty(),data.getStringExtra("code").orEmpty(),
+            data.getLongExtra("ms",0),data.getStringExtra("reason").orEmpty())
+    }
+    override fun onWindowFocusChanged(hasFocus:Boolean) {
+        super.onWindowFocusChanged(hasFocus); if (hasFocus) requestVideoTick()
+    }
     private val ticker = object : Runnable {
         override fun run() { if (app.snapshot.active || app.update.installing) app.poll(); app.main.postDelayed(this, 3000) }
     }
@@ -116,11 +152,13 @@ class MainActivity : Activity() {
         navigationButton().requestFocus()
     }
     override fun onResume() {
-        super.onResume(); app.observe(observer); app.refresh()
+        super.onResume(); resumed=true; app.video.attach(::showVideo); app.observe(observer)
+        if (!app.video.locksControls || !app.connected) app.refresh()
+        requestVideoTick()
         app.checkUpdates(automatic = true)
         app.main.postDelayed(ticker, 3000)
     }
-    override fun onPause() { app.remove(observer); app.main.removeCallbacks(ticker); super.onPause() }
+    override fun onPause() { resumed=false; app.main.removeCallbacks(videoTick); app.video.detach(); app.remove(observer); app.main.removeCallbacks(ticker); super.onPause() }
     override fun onSaveInstanceState(outState: Bundle) { outState.putInt("page", page); outState.putIntArray("back_stack", backStack.toIntArray()); super.onSaveInstanceState(outState) }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
@@ -476,7 +514,7 @@ class MainActivity : Activity() {
         body.addView(brandLogo(), LinearLayout.LayoutParams(dp(210), dp(38)).apply { bottomMargin = dp(8) })
         body.addView(label("Приложение от мастера Святослава для удобной настройки обхода на Android TV.", 16, mint), rowParams())
         body.addView(label("Для первого запуска:\n1. Установите модуль Zapret Pocket через Magisk и перезагрузите приставку.\n2. Разрешите SV Pocket права суперпользователя.\n3. Откройте «Настройки → Расширенные настройки → Подбор» и запустите проверку каталога.\n4. Выберите результат: приложение сохранит стратегию и перезапустит сервис.", 16), rowParams())
-        body.addView(label("Каталог читается из установленного модуля. Отдельно скачивать стратегии не нужно. Команды сверены с исходниками Pocket v71 и v72; ранние версии без маркеров результатов потребуется обновить.\n\nПодбор может длиться несколько часов. Закрытие приложения его не останавливает; перезагрузка приставки прерывает проверку. Частичные результаты сохраняются. После проверки возвращается прежнее состояние сервиса.\n\nНе запускайте одновременно второй модуль Zapret или тестер в терминале/WebUI. При смене провайдера запустите новый подбор: сохранённая оценка относится к предыдущей проверке.\n\nРейтинг основан на ответах сетевых проб Pocket. Дополнительные проверки модуля доступны в журнале. Встроенного теста воспроизведения ролика здесь нет; проверьте выбранный вариант в YouTube или SmartTube.\n\nОбновить установленный модуль можно в разделе «Настройки → Обновление обхода». Установка начинается после подтверждения и завершается перезагрузкой. Приложение не является официальным клиентом sevcator.", 14, muted), rowParams())
+        body.addView(label("Каталог читается из установленного модуля. Отдельно скачивать стратегии не нужно. Команды сверены с исходниками Pocket v71 и v72; ранние версии без маркеров результатов потребуется обновить.\n\nПодбор может длиться несколько часов. Закрытие приложения его не останавливает; перезагрузка приставки прерывает проверку. Частичные результаты сохраняются. После проверки возвращается прежнее состояние сервиса.\n\nНе запускайте одновременно второй модуль Zapret или тестер в терминале/WebUI. При смене провайдера запустите новый подбор: сохранённая оценка относится к предыдущей проверке.\n\nРейтинг основан на ответах сетевых проб Pocket. Дополнительные проверки модуля доступны в журнале. После сетевого подбора YouTube приложение на открытом экране сравнивает ролик во встроенном плеере группами по пять. Первой становится стратегия, быстрее начавшая непрерывное воспроизведение 20 секунд. Проверка в отдельных YouTube и SmartTube остаётся доступной.\n\nОбновить установленный модуль можно в разделе «Настройки → Обновление обхода». Установка начинается после подтверждения и завершается перезагрузкой. Приложение не является официальным клиентом sevcator.", 14, muted), rowParams())
         scrolling(content, body).apply {
             tag = "about_scroll"; isFocusable = true; isFocusableInTouchMode = true
             nextFocusLeftId = navigationButton().id
@@ -484,11 +522,17 @@ class MainActivity : Activity() {
     }
     private fun render() {
         if (!::content.isInitialized) return
+        requestVideoTick()
         val m = app.module; val s = app.snapshot; val u = app.update; val r = app.release
         val idle = app.busy.isEmpty() && !app.updateRequested
         val canControl = app.changesAllowed && m.error.isEmpty()
         val awaiting = app.awaitingVideo
+        val vr = app.video.run
         status.text = when {
+            vr?.phase == "recover" -> vr.message
+            vr?.phase == "restore" -> "Возвращаем прежнюю настройку обхода…"
+            vr?.phase == "switch" -> "Видеотест: включаем ${vr.owned}…"
+            vr?.phase == "commit" -> "Включаем победителя: ${vr.owned}…"
             app.cancelInFlight -> "Отправляем команду остановки…"
             s.active && s.cancelRequested -> s.headline()
             app.busy.isNotEmpty() -> app.busy
@@ -507,7 +551,7 @@ class MainActivity : Activity() {
                 "start", "stop", "restart", "help_repair" -> canControl
                 "fast_start" -> canControl && m.fastStart in setOf("on", "off")
                 "test_youtube", "test_all" -> canControl && m.compatible && m.strategies.isNotEmpty()
-                "cancel" -> app.canCancel
+                "cancel" -> app.canCancel || app.video.locksControls && vr?.phase !in setOf("restore","commit")
                 "refresh", "read_log", "diagnose" -> idle && !u.installing
                 "video_yes" -> canControl && m.service == "running" && m.selected.isNotEmpty()
                 "video_no" -> idle
@@ -520,6 +564,7 @@ class MainActivity : Activity() {
                 else -> true
             }
         }
+        controls["cancel"]?.text = if(vr?.phase=="recover") "Восстановить" else "Остановить"
         controls["auto_update_check"]?.text = "Проверять обновления при открытии: " + if (app.automaticUpdateCheck) "включено" else "выключено"
         controls["fast_start"]?.text = when {
             !app.connected -> "Режим запуска: ожидаем данные модуля"
@@ -592,11 +637,21 @@ class MainActivity : Activity() {
             controls["restore_strategy"]?.text = "Вернуть рабочую: ${app.confirmedName}"
         }
         if (page == 1 || page == 2) {
-            progressTitle?.text = s.headline()
+            val run=vr?.takeIf { app.video.matches(s,m) }
+            progressTitle?.text = when {
+                run?.phase=="done" -> run.message
+                run?.phase in setOf("paused","stopped","recover") -> run?.message
+                app.video.locksControls -> "Этап 2 из 2 · Проверка воспроизведения"
+                s.active && s.profile=="youtube" -> "Этап 1 из 2 · " + s.headline()
+                else -> s.headline()
+            }
             progress?.apply { isIndeterminate = s.status in setOf("starting", "restoring", "cancelling"); max = maxOf(1, s.total); progress = s.completed }
             progressCount?.text = if (s.id.isEmpty()) "Доступно ${m.strategies.size} стратегий. Проверяется весь каталог модуля."
                 else "Обработано ${s.completed} из ${s.total}  ·  пропущено ${s.results.count { it.status == "SKIP" }}  ·  ${formatTime(s.started)}"
+            if(run!=null && run.rows.isNotEmpty()) progressCount?.text = "Сетевые проверки: ${s.completed} из ${s.total} · видеотест: ${run.rows.size} · прошли: ${run.rows.count { it.passed }}"
             subtitle?.text = when {
+                run?.phase=="done" -> "Первой показана включённая стратегия. Запасные тоже воспроизвели видео во встроенном плеере."
+                run?.phase=="paused" -> "Для продолжения: «Подбор: YouTube» → «Продолжить видеотест»."
                 !app.connected && s.id.isEmpty() -> "Откройте помощь и подключите модуль."
                 !m.compatible && app.connected -> "Эта версия модуля не поддерживает результаты подбора для приложения."
                 s.id.isEmpty() -> "Названия стратегий сохранены из каталога Pocket. Выберите стратегию или запустите подбор."
@@ -639,13 +694,22 @@ class MainActivity : Activity() {
         }
     }
     private fun formatTime(seconds: Long): String = if (seconds == 0L) "" else SimpleDateFormat("dd.MM HH:mm", Locale.getDefault()).format(Date(seconds * 1000))
-    private data class Row(val name: String, val result: ProbeResult? = null)
+    private data class Row(val name: String, val result: ProbeResult? = null, val video: VideoMark? = null, val badge: String = "")
     private fun updateRows() {
         val adapter = adapter ?: return
         val lv = list ?: return
         val ranked = app.snapshot.ranked
         val checked = ranked.map { it.name }.toSet()
-        val rows = ranked.map { Row(it.name, it) } + app.module.strategies.filter { it !in checked }.map { Row(it) }
+        val run=app.video.run?.takeIf { app.video.matches(app.snapshot,app.module) }
+        val marks=run?.rows?.associateBy{it.name}.orEmpty()
+        val rows=(ranked.map {
+            val mark=marks[it.name];val badge=when {
+                run?.winner==it.name -> " · ЛУЧШАЯ ПО ВИДЕО"
+                mark?.passed==true -> if(run?.phase=="done") " · ЗАПАСНАЯ" else " · ВИДЕО ПРОШЛО"
+                else -> ""
+            };Row(it.name,it,mark,badge)
+        } + app.module.strategies.filter { it !in checked }.map { Row(it) })
+            .sortedBy { if(it.video?.passed==true) it.video.startMs else Long.MAX_VALUE }
         if (adapter.rows == rows && adapter.selected == app.module.selected && adapter.current == app.snapshot.current && adapter.running == app.snapshot.active) return
         val focusedName = if (lv.hasFocus()) adapter.rows.getOrNull(lv.selectedItemPosition)?.name else null
         adapter.rows = rows; adapter.selected = app.module.selected; adapter.current = app.snapshot.current; adapter.running = app.snapshot.active
@@ -672,8 +736,8 @@ class MainActivity : Activity() {
             }
             val row = rows[position]
             val marker = if (row.name == selected) "  ·  ВЫБРАНА" else ""
-            (box.getChildAt(0) as TextView).text = row.name + marker
-            (box.getChildAt(1) as TextView).text = row.result?.description() ?: when {
+            (box.getChildAt(0) as TextView).text = row.name + row.badge + marker
+            (box.getChildAt(1) as TextView).text = row.video?.description()?.plus("  ·  Сеть: ${row.result?.ok}/${row.result?.total}") ?: row.result?.description() ?: when {
                 running && row.name == current -> "Проверяется сейчас…"
                 running -> "Ожидает проверки"
                 else -> "Не проверена в последнем подборе"
@@ -684,6 +748,7 @@ class MainActivity : Activity() {
     private fun showStrategy(row: Row) {
         val available = row.name in app.module.strategies
         val message = buildString {
+            row.video?.let { append(it.description()).append("\n") }
             append(row.result?.description() ?: "Стратегия не проверена в последнем подборе.")
             if (row.result != null && !app.snapshot.matches(app.module)) append("\nЭто результат прежнего каталога. Требуется новая проверка.")
             append("\n\nПосле выбора Pocket сохранит стратегию и перезапустит сервис. Затем откройте YouTube или SmartTube для проверки видео.")
@@ -698,15 +763,25 @@ class MainActivity : Activity() {
         dialog.show()
     }
     private fun confirmTest(profile: String) {
-        val scope = if (profile == "youtube") "адреса YouTube" else "стандартные адреса разных сервисов Pocket"
-        AlertDialog.Builder(this).setTitle("Проверить ${app.module.strategies.size} стратегий?")
-            .setMessage("Тестер модуля проверит $scope и выполнит свои дополнительные пробы. Это может занять несколько часов. Во время подбора интернет может прерываться.\n\nПриложение можно закрыть. Приставку не перезагружайте. После окончания восстановится прежнее состояние сервиса; результаты нового подбора заменят прежние.")
-            .setNegativeButton("Отмена", null).setPositiveButton("Начать подбор") { _, _ -> app.launch(profile) }.show()
+        val youtube=profile=="youtube"
+        val dialog=AlertDialog.Builder(this).setTitle(if(youtube) "Подобрать и включить стратегию YouTube?" else "Проверить все сервисы?")
+            .setMessage(if(youtube) "Сначала проверим адреса YouTube по каталогу (${app.module.strategies.size} стратегий). Это может занять несколько часов; приложение можно закрыть. Затем на открытом экране проверим реальное видео группами по пять. Победитель будет включён автоматически. Во время переключений интернет может прерываться."
+                else "Тестер проверит стандартные адреса разных сервисов Pocket. После окончания восстановится прежнее состояние сервиса.")
+            .setNegativeButton("Отмена",null).setPositiveButton("Начать подбор") { _,_-> app.launch(profile) }
+        if(youtube && VideoRank.candidates(app.snapshot,app.module).isNotEmpty()) {
+            val resume=app.video.matches(app.snapshot,app.module) && app.video.run?.phase=="paused"
+            dialog.setNeutralButton(if(resume) "Продолжить видеотест" else "Только видеотест") { _,_->
+                app.video.armSaved(app.snapshot,app.module,videoNetwork()); requestVideoTick()
+            }
+        }
+        dialog.show()
     }
     private fun confirmStop() {
-        AlertDialog.Builder(this).setTitle("Остановить подбор?")
-            .setMessage("Готовые результаты сохранятся. Pocket завершит текущие проверки и восстановит прежнее состояние сервиса.")
-            .setNegativeButton("Продолжить проверку", null).setPositiveButton("Остановить") { _, _ -> app.control("cancel-test") }.show()
+        if(app.video.run?.phase=="recover"){ app.video.retryRestore();requestVideoTick();return }
+        AlertDialog.Builder(this).setTitle("Остановить подбор?").setMessage("Готовые результаты сохранятся. Вернём прежнее состояние обхода.")
+            .setNegativeButton("Продолжить подбор",null).setPositiveButton("Остановить") { _,_->
+                if(app.video.locksControls) app.video.stop("Видеотест остановлен.",false) else app.control("cancel-test")
+            }.show()
     }
     private fun showError() {
         AlertDialog.Builder(this).setTitle("Ошибка").setMessage(app.error)

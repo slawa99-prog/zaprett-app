@@ -65,6 +65,8 @@ class MainActivity : Activity() {
     private var journal: TextView? = null
     private val observer: () -> Unit = { render() }
     private var resumed = false
+    private val probeRequests = mutableMapOf<Int,String>()
+    private var probeCode = 0x5200
     private val videoTick = Runnable {
         if (resumed && !isFinishing) app.video.tick(app.snapshot,app.module,app.canTickVideo,hasWindowFocus(),videoNetwork())
     }
@@ -76,26 +78,32 @@ class MainActivity : Activity() {
         val applicationState = app
         val reply=object : android.os.ResultReceiver(app.main) {
             override fun onReceiveResult(resultCode:Int,data:Bundle?) {
-                if (data!=null) applicationState.video.result(data.getString("token").orEmpty(),data.getString("code").orEmpty(),
-                    data.getLong("ms"),data.getString("reason").orEmpty())
+                if (data!=null) applicationState.acceptVideoReply(data)
             }
         }
+        val rc=probeCode++
+        if(probeCode>0x6fff)probeCode=0x5200
+        probeRequests[rc]=t.token
         return try {
             startActivityForResult(Intent(this,VideoProbeActivity::class.java)
                 .putExtra("token",t.token).putExtra("candidate",t.name).putExtra("index",t.index).putExtra("count",t.total)
-                .putExtra("network",t.network).putExtra("reply",reply), 426)
+                .putExtra("network",t.network).putExtra("reply",reply),rc)
             true
-        } catch(e:Exception){ false }
+        } catch(e:Exception){ probeRequests.remove(rc);false }
     }
     @Deprecated("Framework activity result")
     override fun onActivityResult(requestCode:Int,resultCode:Int,data:Intent?) {
         super.onActivityResult(requestCode,resultCode,data)
-        if(requestCode!=426)return
-        val r=app.video.run ?: return
-        if (data==null) {
-            if (r.phase=="playing") app.video.result(r.token,"pause",0,"Плеер был закрыт системой.")
-        } else app.video.result(data.getStringExtra("token").orEmpty(),data.getStringExtra("code").orEmpty(),
-            data.getLongExtra("ms",0),data.getStringExtra("reason").orEmpty())
+        if(requestCode !in 0x5200..0x6fff)return
+        val expected=probeRequests.remove(requestCode)
+        val reply=data?.extras
+        if (reply!=null) app.acceptVideoReply(reply)
+        else if(expected!=null) app.main.postDelayed({
+            // A cancelled or delayed Activity result belongs to its own launch, never
+            // to a new candidate. The process also replies through a ResultReceiver.
+            val r=app.video.run
+            if(r?.phase=="playing" && r.token==expected) app.video.result(expected,"pause",0,"Плеер был закрыт системой.")
+        },600)
     }
     override fun onWindowFocusChanged(hasFocus:Boolean) {
         super.onWindowFocusChanged(hasFocus); if (hasFocus) requestVideoTick()

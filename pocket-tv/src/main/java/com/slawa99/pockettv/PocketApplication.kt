@@ -36,7 +36,27 @@ open class PocketApplication : Application() {
             if (refreshState) refresh()
         })
     }
-    internal val canTickVideo get() = busy.isEmpty() && !polling && !cancelInFlight && !updateRequested &&
+    private var retiringPlayer: android.os.IBinder? = null
+    internal fun acceptVideoReply(b: android.os.Bundle) {
+        val token=b.getString("token").orEmpty()
+        if (video.run?.token!=token || video.run?.phase!="playing") return
+        val life=b.getBinder("player_process")
+        if (life!=null && life.isBinderAlive) {
+            retiringPlayer=life
+            try { life.linkToDeath({ main.post {
+                if (retiringPlayer===life) { retiringPlayer=null; notifyChanged() }
+            } },0) } catch (_:android.os.RemoteException) { retiringPlayer=null }
+            main.postDelayed({
+                if (retiringPlayer===life) {
+                    retiringPlayer=null
+                    video.stop("Предыдущий плеер не закрылся. Можно продолжить видеотест.",true)
+                    notifyChanged()
+                }
+            },6000)
+        }
+        video.result(token,b.getString("code").orEmpty(),b.getLong("ms"),b.getString("reason").orEmpty())
+    }
+    internal val canTickVideo get() = retiringPlayer==null && busy.isEmpty() && !polling && !cancelInFlight && !updateRequested &&
         connected && !snapshot.active && !update.blocksChanges
     private val updater by lazy { ModuleUpdates(this) }
     var module = ModuleInfo(); private set

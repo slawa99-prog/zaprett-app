@@ -18,6 +18,7 @@ internal fun Context.videoNetwork(): Long =
 
 /** One visible, disposable player process per candidate. No JS interface or access to root. */
 class VideoProbeActivity : Activity() {
+    private val life = Binder()
     private val main = Handler(Looper.getMainLooper())
     private val clock get() = SystemClock.elapsedRealtime()
     private lateinit var status: TextView
@@ -126,7 +127,7 @@ class VideoProbeActivity : Activity() {
     private fun end(code:String,reason:String,start:Long=0) {
         if(finished)return
         finished=true;main.removeCallbacks(loop)
-        val b=Bundle().apply{putString("token",ticket);putString("code",code);putString("reason",reason);putLong("ms",start)}
+        val b=Bundle().apply{putBinder("player_process",life);putString("token",ticket);putString("code",code);putString("reason",reason);putLong("ms",start)}
         @Suppress("DEPRECATION")
         intent.getParcelableExtra<ResultReceiver>("reply")?.send(RESULT_OK,b)
         setResult(RESULT_OK,Intent().putExtras(b));finish()
@@ -140,6 +141,6 @@ class VideoProbeActivity : Activity() {
         super.onDestroy()
         // Never share the previous candidate's open media connections with the next one.
         if (isFinishing && Application.getProcessName()==packageName+":videoprobe")
-            android.os.Process.killProcess(android.os.Process.myPid())
+            main.postDelayed({ android.os.Process.killProcess(android.os.Process.myPid()) },180)
     }
 }

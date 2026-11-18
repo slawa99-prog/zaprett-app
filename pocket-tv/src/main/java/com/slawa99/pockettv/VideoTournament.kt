@@ -13,14 +13,14 @@ internal data class VideoRun(val id: String, val catalog: String, val original: 
     fun encode() = JSONObject().put("id", id).put("cat", catalog).put("orig", original).put("on", wasOn)
         .put("q", JSONArray(queue)).put("net", network).put("p", phase).put("o", owned).put("t", token)
         .put("msg", message).put("win", winner).put("rows", JSONArray().also { arr -> rows.forEach {
-            arr.put(JSONArray().put(it.name).put(it.status).put(it.startMs)) } }).toString()
+            arr.put(JSONArray().put(it.name).put(it.status).put(it.startMs).put(it.detail)) } }).toString()
     companion object {
         fun decode(s: String?): VideoRun? {
             if (s.isNullOrEmpty()) return null
             val o = JSONObject(s); val q = o.getJSONArray("q"); val a = o.getJSONArray("rows")
             return VideoRun(o.getString("id"), o.getString("cat"), o.getString("orig"), o.getBoolean("on"),
                 (0 until q.length()).map(q::getString), o.getLong("net"), (0 until a.length()).map { i ->
-                    val row = a.getJSONArray(i); VideoMark(row.getString(0),row.getString(1),row.getLong(2))
+                    val row = a.getJSONArray(i); VideoMark(row.getString(0),row.getString(1),row.getLong(2),row.optString(3))
                 }, o.getString("p"), o.optString("o"), o.optString("t"), o.optString("msg"), o.optString("win"))
         }
     }
@@ -137,7 +137,7 @@ internal class VideoTournament(context: Context, private val worker: Executor, p
         if (v.phase!="playing" || token!=v.token) return
         when {
             status=="pass" && start in 1..35_000 -> record(VideoMark(v.owned,status,start))
-            status in setOf("stall","timeout","player_error") -> record(VideoMark(v.owned,status))
+            status in setOf("stall","timeout","player_error") -> record(VideoMark(v.owned,status,detail=reason.take(140)))
             else -> stop(reason.ifBlank { "Видеотест остановлен." },status=="pause")
         }
     }

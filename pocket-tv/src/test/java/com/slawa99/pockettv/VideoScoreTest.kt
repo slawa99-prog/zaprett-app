@@ -24,6 +24,11 @@ class VideoScoreTest {
         for(bad in listOf(s.copy(profile="all"),s.copy(status="cancelled"),s.copy(catalogId="old"),s.copy(restore="failed")))
             assertTrue(VideoRank.candidates(bad,m).isEmpty())
     }
+    @Test fun coarsePlayerTimestampEverySecondIsNotASeek() {
+        val meter=VideoMeter(0);var outcome:String?=null
+        for(i in 0..57){outcome=meter.sample(i*400L,1,((i*400L)/1000).toDouble());if(outcome!=null) break}
+        assertEquals("pass",outcome)
+    }
     @Test fun requiresTwentyRealSecondsAndProgressWithoutAStall() {
         val good=VideoMeter(0); var result:String?=null
         for (i in 0..41) result=good.sample(i*500L,1,i*.5)

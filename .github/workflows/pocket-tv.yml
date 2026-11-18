@@ -102,11 +102,11 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: |
+            python3 pocket-tv/tests/test_video_tournament.py
             adb push /tmp/pocket72-test.zip /data/local/tmp/pocket72-test.zip
             python3 pocket-tv/tests/test_android_runtime.py
             bash pocket-tv/tests/run_device_tests.sh
             python3 pocket-tv/tests/test_apk_upgrade.py
-            python3 pocket-tv/tests/test_video_tournament.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:

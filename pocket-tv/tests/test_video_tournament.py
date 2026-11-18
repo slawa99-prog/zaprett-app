@@ -4,6 +4,7 @@ Last run uses the shipping Google IFrame adapter and records actual lab availabi
 import json
 import shlex
 import subprocess
+import sys
 import time
 from pathlib import Path
 import xml.etree.ElementTree as ET
@@ -63,6 +64,17 @@ def open_tests():
 def screenshot(name):
     pic=Path('pocket-tv/screenshots')/name;pic.parent.mkdir(exist_ok=True)
     pic.write_bytes(subprocess.check_output(['adb','exec-out','screencap','-p']))
+def failure_trace(ty,value,tb):
+    try:
+        log=adb('logcat','-d','-s','SVVideo:I','AndroidRuntime:E')
+        print(log[-5500:],flush=True)
+        (REPORT.parent/'video-logcat.txt').write_text(log[-20000:])
+        screenshot('video-failure-qa.png')
+    finally:sys.__excepthook__(ty,value,tb)
+sys.excepthook=failure_trace
+sh('settings','put','system','accelerometer_rotation','0')
+sh('settings','put','system','user_rotation','0')
+sh('wm','size','1920x1080');sh('wm','density','320')
 adb('uninstall',PKG,check=False)
 assert 'Success' in adb('install',QA)
 priv('sh','-c','mkdir -p files && touch files/qa-video-fixture')

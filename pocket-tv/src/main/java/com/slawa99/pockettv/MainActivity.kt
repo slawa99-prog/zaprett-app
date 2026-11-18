@@ -756,7 +756,7 @@ class MainActivity : Activity() {
     private fun showStrategy(row: Row) {
         val available = row.name in app.module.strategies
         val message = buildString {
-            row.video?.let { append(it.description()).append("\n") }
+            row.video?.let { append(it.description()).append("\n"); if(it.detail.isNotBlank()) append(it.detail).append("\n") }
             append(row.result?.description() ?: "Стратегия не проверена в последнем подборе.")
             if (row.result != null && !app.snapshot.matches(app.module)) append("\nЭто результат прежнего каталога. Требуется новая проверка.")
             append("\n\nПосле выбора Pocket сохранит стратегию и перезапустит сервис. Затем откройте YouTube или SmartTube для проверки видео.")

@@ -124,12 +124,13 @@ class VideoProbeActivity : Activity() {
             val state=a.optInt(3,-1);val done=meter.sample(clock,state,a.optDouble(4,0.0))
             status.text=when { meter.startup>0->"Воспроизведение: ${meter.seconds} из 20 с"
                 a.optBoolean(0)->"Ждём начала воспроизведения…"; else->"Загружаем плеер YouTube…" }
-            if(done!=null)end(done,"",meter.startup)
+            if(done!=null)end(done,if(done=="pass") "" else "Состояние плеера: $state; прошло ${meter.seconds} с видео.",meter.startup)
         }
     }
     private fun end(code:String,reason:String,start:Long=0) {
         if(finished)return
         finished=true;main.removeCallbacks(loop)
+        android.util.Log.i("SVVideo","attempt=${intent.getIntExtra("index",0)} result=$code media=${meter.seconds}s startup=${start}ms $reason")
         val b=Bundle().apply{putBinder("player_process",life);putString("token",ticket);putString("code",code);putString("reason",reason);putLong("ms",start)}
         @Suppress("DEPRECATION")
         intent.getParcelableExtra<ResultReceiver>("reply")?.send(RESULT_OK,b)

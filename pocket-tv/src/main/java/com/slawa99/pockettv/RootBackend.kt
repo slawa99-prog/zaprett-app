@@ -22,6 +22,11 @@ interface PocketBackend {
 
 class RootBackend(private val context: Context) : PocketBackend {
     private val rootCommand = RootCommand()
+    private val fastSource by lazy {
+        File(context.filesDir, "fast_network_wait.sh").also { target ->
+            context.assets.open("fast_network_wait.sh").use { source -> target.outputStream().use { source.copyTo(it) } }
+        }
+    }
     private val bridge by lazy {
         File(context.filesDir, "pocket_bridge.sh").also { target ->
             context.assets.open("pocket_bridge.sh").use { source ->
@@ -32,8 +37,12 @@ class RootBackend(private val context: Context) : PocketBackend {
     override fun inspect(): ModuleInfo = PocketProtocol.module(run("inspect", timeout = 25))
     override fun poll(): TestSnapshot = PocketProtocol.test(run("poll", timeout = 25))
     override fun command(command: String, argument: String): String {
-        require(command in setOf("start", "stop", "restart", "apply", "cancel-test"))
+        require(command in setOf("start", "stop", "restart", "apply", "cancel-test", "fast-start"))
         if (command == "apply") require(PocketProtocol.safeName(argument))
+        if (command == "fast-start") {
+            require(argument == "on" || argument == "off")
+            return run(command, argument, timeout = 25)
+        }
         return run(command, *if (argument.isEmpty()) emptyArray() else arrayOf(argument), timeout = 300)
     }
     override fun launch(profile: String): String {
@@ -54,7 +63,9 @@ class RootBackend(private val context: Context) : PocketBackend {
             "POCKET_TV_CURL_SOURCE=${PocketProtocol.shellQuote(it.curl.absolutePath)} " +
                 "POCKET_TV_CA_SOURCE=${PocketProtocol.shellQuote(it.certificates.absolutePath)} "
         }.orEmpty()
-        val cmd = environment + "/system/bin/sh ${PocketProtocol.shellQuote(bridge.absolutePath)} " + args.joinToString(" ") { PocketProtocol.shellQuote(it) }
+        val fastEnv = if (args.firstOrNull() == "fast-start" && args.getOrNull(1) == "on")
+            "POCKET_TV_FAST_SOURCE=${PocketProtocol.shellQuote(fastSource.absolutePath)} " else ""
+        val cmd = environment + fastEnv + "/system/bin/sh ${PocketProtocol.shellQuote(bridge.absolutePath)} " + args.joinToString(" ") { PocketProtocol.shellQuote(it) }
         return rootCommand.run(cmd, args.firstOrNull().orEmpty(), timeout)
     }
 }

@@ -147,6 +147,20 @@ class PocketApplication : Application() {
             }
         }
     }
+    fun setFastStart(enabled: Boolean) {
+        if (!changesAllowed || module.fastStart !in setOf("on", "off")) return
+        val mode = if (enabled) "on" else "off"
+        operation("Сохраняем режим запуска…") {
+            backend.command("fast-start", mode)
+            val m = backend.inspect()
+            check(m.fastStart == mode) { "Не удалось подтвердить режим. Проверьте состояние модуля." }
+            main.post {
+                module = m
+                notice = if (enabled) "Быстрый запуск включён. Он подействует со следующего запуска обхода."
+                         else "Обычный запуск восстановлен."
+            }
+        }
+    }
     fun launch(profile: String) = operation("Готовим подбор стратегий…") {
         val output = backend.launch(profile); val state = backend.poll(); persist(state)
         main.post {

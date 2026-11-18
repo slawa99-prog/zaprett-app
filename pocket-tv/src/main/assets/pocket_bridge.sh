@@ -1,5 +1,6 @@
 #!/system/bin/sh
-# SV Pocket owns only BASE. All network/firewall work is delegated to Pocket.
+# Except for the explicitly requested reversible fast-start setting, SV Pocket
+# writes its own state under BASE. Pocket owns all network/firewall operations.
 umask 077
 BASE="${POCKET_TV_BASE:-/data/adb/pocket-tv}"
 MOD="${POCKET_TV_MODULE:-/data/adb/modules/zapret}"
@@ -55,11 +56,64 @@ idle_required() {
     update_in_progress && fail 'Обновление ещё устанавливается. Дождитесь завершения.'
     [ ! -f "$STAGING/module.prop" ] || fail 'Обновление установлено. Сначала перезагрузите приставку.'
     active && fail 'Сначала остановите подбор и дождитесь восстановления сервиса.'
-    # A tester opened in a terminal or WebUI must not race the application.
-    if ps -A -o ARGS 2>/dev/null | grep -F "$CLI" | grep -E '(^|[[:space:]])test([[:space:]]|$)' | grep -v 'grep' >/dev/null; then
-        fail 'Тестер Pocket уже запущен из терминала или WebUI. Завершите его перед этой операцией.'
-    fi
+    # A Magisk boot/start or a tester opened outside the app may not own our lock.
+    # Only match the actual script and its first argument, never a shell -c string.
+    snapshot=$(ps -A -o PID,ARGS 2>/dev/null) || fail 'Не удалось проверить, не запускается ли уже модуль.'
+    pending=$(printf '%s\n' "$snapshot" | awk -v cli="$CLI" -v boot="$MOD/service.sh" '
+        $1 ~ /^[0-9]+$/ {
+            i=2
+            if ($i ~ /(^|\/)(busybox|toybox)$/ && $(i+1) ~ /^(ash|sh)$/) i++
+            if ($i ~ /(^|\/)(sh|ash|bash|mksh)$/) i++
+            if ($i==cli && $(i+1)=="test") testing=1
+            if ($i==boot || ($i==cli && ($(i+1)=="start" || $(i+1)=="restart"))) starting=1
+        }
+        END { if (testing) print "test"; else if (starting) print "start" }')
+    case "$pending" in
+        test) fail 'Тестер Pocket уже запущен из терминала или WebUI. Завершите его перед этой операцией.' ;;
+        start) fail 'Модуль уже запускается. Дождитесь запуска и обновите состояние.' ;;
+    esac
 }
+stock_common=24498c2653ba009e6b090418d6d4f788650ef156d4a935332e38b8e375b41e36
+fast_common=368bc0d99c816790251048c74bd2d1782534af42267e4d629a3b062021a47a44
+file_hash() { sha256sum "$1" 2>/dev/null | awk '{print $1}'; }
+fast_start_mode() {
+    case "$(version_code "$MOD")" in 71|72) ;; *) echo unsupported; return;; esac
+    if [ ! -f "$MOD/common.sh" ] || [ -L "$MOD/common.sh" ]; then echo unsupported; return; fi
+    case "$(file_hash "$MOD/common.sh")" in
+        "$stock_common") echo off;; "$fast_common") echo on;; *) echo unsupported;;
+    esac
+}
+set_fast_start() (
+    # The original file remains byte-for-byte as the prefix. Both directions
+    # verify the entire input and output. An upstream update never gets rolled back.
+    case "$1" in on|off) ;; *) fail 'Неизвестный режим запуска.';; esac
+    mode=$(fast_start_mode)
+    [ "$mode" != "$1" ] || exit 0
+    [ "$mode" != unsupported ] || fail 'Быстрый запуск доступен только для оригинального Pocket 71 или 72. Файлы не изменены.'
+    common="$MOD/common.sh"
+    tmp=$(mktemp "$MOD/.sv-pocket-common.XXXXXX") || fail 'Не удалось подготовить изменение.'
+    trap 'rm -f "$tmp"' EXIT
+    cp -p "$common" "$tmp" || fail 'Не удалось сохранить права файла модуля.'
+    if [ "$1" = on ]; then
+        from=$stock_common; to=$fast_common
+        [ -f "${POCKET_TV_FAST_SOURCE:-}" ] && cat "$POCKET_TV_FAST_SOURCE" >> "$tmp" || fail 'Компонент быстрого запуска недоступен.'
+    else
+        from=$fast_common; to=$stock_common
+        head -c 39097 "$common" > "$tmp" || fail 'Не удалось восстановить оригинальный файл.'
+    fi
+    [ "$(file_hash "$tmp")" = "$to" ] && "$SHELL_BIN" -n "$tmp" || fail 'Проверка изменения не пройдена. Модуль оставлен без изменений.'
+    attrs=$(stat -c '%u:%g:%a' "$common") && [ -n "$attrs" ] && [ "$attrs" = "$(stat -c '%u:%g:%a' "$tmp")" ] || fail 'Права файла не совпали. Модуль оставлен без изменений.'
+    if [ -f /sys/fs/selinux/enforce ]; then
+        label=$(ls -Zd "$common" | awk '{print $1}')
+        case "$label" in *:*:*:*) ;; *) fail 'Не удалось прочитать контекст файла модуля.';; esac
+        if [ "$(ls -Zd "$tmp" | awk '{print $1}')" != "$label" ]; then
+            chcon "$label" "$tmp" && [ "$(ls -Zd "$tmp" | awk '{print $1}')" = "$label" ] || fail 'Не удалось сохранить контекст файла.'
+        fi
+    fi
+    [ ! -e "$STAGING/module.prop" ] && [ ! -L "$common" ] && [ "$(file_hash "$common")" = "$from" ] ||
+        fail 'Модуль изменился во время операции. Обновите состояние.'
+    mv -f "$tmp" "$common" || fail 'Не удалось сохранить режим запуска.'
+)
 catalog_id() {
     # Preserve the existing fingerprint, but start sha256sum once for the whole
     # catalog instead of hundreds of separate processes on a TV box.
@@ -160,13 +214,15 @@ catalog_directory() {
 }
 catalog() {
     directory="$(catalog_directory)"
+    set --
     for file in "$directory/"*.sh; do
         [ -f "$file" ] || continue
         name="${file##*/}"; name="${name%.sh}"
         case "$name" in zapret|make-unkillable) continue ;; esac
         # The CLI uses newline-separated strategy names too.
-        printf '%s\n' "$name"
-    done | sort
+        set -- "$@" "$name"
+    done
+    [ "$#" -eq 0 ] || printf '%s\n' "$@" | sort
 }
 prepare_curl() {
     # Pocket v71 bundles a Termux curl executable without its shared libraries.
@@ -253,8 +309,9 @@ inspect() {
     field SERVICE "$svc"
     field SELECTED "$(value "$MOD/config/current-strategy")"
     if [ -f "$MOD/service.sh" ]; then field BOOT 1; else field BOOT 0; fi
+    field FAST_START "$(fast_start_mode)"
     if grep -q '@@RESULT' "$CLI" && grep -q '@@TESTING' "$CLI"; then field COMPATIBLE 1; else field COMPATIBLE 0; fi
-    catalog | while IFS= read -r name; do field STRATEGY "$name"; done
+    catalog | sed 's/^/@@STRATEGY /'
 }
 poll() {
     [ -f "$SESSION/id" ] || { field STATE idle; return; }
@@ -306,6 +363,10 @@ boot_diagnostics() {
     if command -v getprop >/dev/null 2>&1; then printf 'sys.boot_completed: %s\n' "$(getprop sys.boot_completed)"; fi
     printf 'module version: %s\n' "$(version_code "$MOD")"
     printf 'selected: %s\n' "$(value "$MOD/config/current-strategy")"
+    printf 'fast start: %s\n' "$(fast_start_mode)"
+    if [ -r "$MOD/.service/sv-network-wait.log" ]; then
+        printf 'last network wait (match boot_id above): '; head -n 1 "$MOD/.service/sv-network-wait.log"
+    fi
     for name in service.sh disable remove; do
         if [ -e "$MOD/$name" ]; then printf '%s: present\n' "$name"; else printf '%s: absent\n' "$name"; fi
     done
@@ -452,6 +513,7 @@ case "${1:-}" in
         [ -f "$STAGING/module.prop" ] || fail 'Нет обновления, ожидающего перезагрузки.'
         reboot ;;
     inspect) inspect ;;
+    fast-start) require_module; acquire; idle_required; set_fast_start "$2" ;;
     service-state) process_service_status ;;
     state) case "${2:-}" in full|quick) read_state "$2" ;; *) fail 'Неизвестный режим состояния.' ;; esac ;;
     poll) poll ;;
@@ -483,8 +545,12 @@ case "${1:-}" in
         selected="${2:-}"
         case "$selected" in ''|*/*|.|..) fail 'Некорректное имя стратегии.' ;; esac
         catalog | grep -Fx -- "$selected" >/dev/null || fail 'Стратегия отсутствует в установленном каталоге Pocket.'
-        printf '%s\n' "$selected" | "$SHELL_BIN" "$CLI" strategy || exit 1
+        before="$(service_status)" || fail 'Не удалось проверить состояние перед подключением.'
+        if [ "$(value "$MOD/config/current-strategy")" != "$selected" ]; then
+            printf '%s\n' "$selected" | "$SHELL_BIN" "$CLI" strategy || exit 1
+        fi
         [ "$(value "$MOD/config/current-strategy")" = "$selected" ] || fail 'Pocket не сохранил выбранную стратегию.'
-        "$SHELL_BIN" "$CLI" restart ;;
+        if [ "$before" = stopped ]; then "$SHELL_BIN" "$CLI" start
+        else "$SHELL_BIN" "$CLI" restart; fi ;;
     *) fail 'Неизвестная команда SV Pocket.' ;;
 esac

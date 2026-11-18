@@ -172,7 +172,7 @@ class MainActivity : Activity() {
         "open_log", "update_details" -> PocketIcon.LOG
         "open_strategies" -> PocketIcon.LIST
         "auto_update_check" -> PocketIcon.AUTO
-        "open_advanced" -> PocketIcon.SETTINGS
+        "open_advanced", "fast_start" -> PocketIcon.SETTINGS
         else -> PocketIcon.SEARCH
     }
     private fun hero(parent: LinearLayout, icon: PocketIcon? = null): LinearLayout {
@@ -276,6 +276,15 @@ class MainActivity : Activity() {
         body.addView(label("Обновления и дополнительные возможности", 16, muted), rowParams())
         addControl(body, "open_updates", "Обновление обхода YouTube") { showPage(7); focusContent() }
         addControl(body, "auto_update_check", "") { app.automaticUpdateCheck = !app.automaticUpdateCheck }
+        addControl(body, "fast_start", "Быстрый запуск обхода") {
+            val enable = app.module.fastStart == "off"
+            AlertDialog.Builder(this)
+                .setTitle(if (enable) "Включить быстрый запуск?" else "Вернуть обычный запуск?")
+                .setMessage(if (enable) "Если кабель или Wi-Fi уже готовы, модуль начнёт запуск без ожидания ответа внешних сайтов. Выбор стратегии сохранится. Работает и после перезагрузки, без открытия приложения."
+                    else "Модуль вернётся к обычной проверке сети при запуске. Стратегия останется прежней.")
+                .setNegativeButton("Отмена", null)
+                .setPositiveButton(if (enable) "Включить" else "Вернуть") { _, _ -> app.setFastStart(enable) }.show()
+        }
         addControl(body, "open_advanced", "Расширенные настройки") { showPage(8); focusContent() }
         addControl(body, "open_about", "О приложении и первый запуск") { showPage(4); focusContent() }
         wireVerticalButtons(body); scrolling(content, body)
@@ -329,7 +338,7 @@ class MainActivity : Activity() {
         if (requestCode == 72 && pendingUpdateVersion > 0) app.startModuleUpdate(pendingUpdateVersion)
     }
     private fun confirmApply(name: String) {
-        AlertDialog.Builder(this).setTitle(name).setMessage("Включить эту стратегию и перезапустить обход? Затем проверьте видео.")
+        AlertDialog.Builder(this).setTitle(name).setMessage("Применить эту стратегию и включить обход? Если обход уже работает, он перезапустится. Затем проверьте видео.")
             .setNegativeButton("Отмена", null).setPositiveButton("Попробовать") { _, _ -> app.control("apply", name, helpAfter = true) }.show()
     }
     private fun wireVerticalButtons(parent: LinearLayout) {
@@ -496,6 +505,7 @@ class MainActivity : Activity() {
         controls.forEach { (key, b) ->
             b.isEnabled = when (key) {
                 "start", "stop", "restart", "help_repair" -> canControl
+                "fast_start" -> canControl && m.fastStart in setOf("on", "off")
                 "test_youtube", "test_all" -> canControl && m.compatible && m.strategies.isNotEmpty()
                 "cancel" -> app.canCancel
                 "refresh", "read_log", "diagnose" -> idle && !u.installing
@@ -511,6 +521,12 @@ class MainActivity : Activity() {
             }
         }
         controls["auto_update_check"]?.text = "Проверять обновления при открытии: " + if (app.automaticUpdateCheck) "включено" else "выключено"
+        controls["fast_start"]?.text = "Быстрый запуск обхода: " + when {
+            !app.connected -> "ожидаем данные модуля"
+            m.fastStart == "on" -> "включён"
+            m.fastStart == "off" -> "выключен"
+            else -> "нужен оригинальный Pocket 71 или 72"
+        }
         if (page == 0) {
             heroEmblem?.apply {
                 kind = when { u.blocksChanges -> PocketIcon.DOWNLOAD; s.active -> PocketIcon.SEARCH; else -> PocketIcon.POWER }

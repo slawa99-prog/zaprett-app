@@ -4,7 +4,7 @@ data class ModuleInfo(
     val version: String = "", val service: String = "unknown", val selected: String = "",
     val strategies: List<String> = emptyList(), val compatible: Boolean = false,
     val error: String = "", val bootEnabled: Boolean = false,
-    val versionCode: Int = 0, val catalogId: String = ""
+    val versionCode: Int = 0, val catalogId: String = "", val fastStart: String = "unsupported"
 )
 
 data class BackendState(val module: ModuleInfo?, val test: TestSnapshot, val update: ModuleUpdateState)
@@ -73,7 +73,7 @@ object PocketProtocol {
             lines.filter { it.startsWith("@@STRATEGY ") }.map { it.substringAfter(' ') }.filter(::safeName).distinct().sorted(),
             field("COMPATIBLE") == "1", field("ERROR"), field("BOOT") == "1",
             field("VERSION_CODE").toIntOrNull() ?: field("VERSION").removePrefix("v").toIntOrNull() ?: 0,
-            field("CATALOG_ID"))
+            field("CATALOG_ID"), field("FAST_START").takeIf { it == "on" || it == "off" } ?: "unsupported")
     }
     fun test(output: String): TestSnapshot {
         val main = output.substringBefore("@@LOGTAIL\n").replace(ansi, "")

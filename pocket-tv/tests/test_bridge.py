@@ -101,6 +101,24 @@ class BridgeTest(unittest.TestCase):
         self.assertEqual('restart', (self.mod / 'calls').read_text().splitlines()[-1])
         self.assertNotEqual(0, self.call('apply', '../general', check=False).returncode)
 
+    def test_reconnecting_saved_strategy_while_stopped_only_starts(self):
+        (self.mod/'state').write_text('stopped\n')
+        self.call('apply', 'general')
+        self.assertEqual(['start'], (self.mod/'calls').read_text().splitlines())
+        self.call('apply', 'general')  # Explicit retry while running still repairs it.
+        self.assertEqual(['start','restart'], (self.mod/'calls').read_text().splitlines())
+
+    def test_native_start_and_external_tester_do_not_race_changes(self):
+        for cmd in [f'/system/bin/sh {self.mod}/system/bin/zapret start',
+                    f'/system/bin/sh {self.mod}/system/bin/zapret test',
+                    f'/data/adb/magisk/busybox ash {self.mod}/service.sh']:
+            (self.mod/'processes').write_text(f'PID COMMAND\n1 init\n8 {cmd}\n')
+            self.assertNotEqual(0, self.call('apply', self.names[1], check=False).returncode)
+            self.assertFalse((self.mod/'calls').exists())
+            self.assertEqual('general', (self.mod/'config/current-strategy').read_text().strip())
+        (self.mod/'processes').write_text(f'PID COMMAND\n1 init\n8 /system/bin/sh -c echo {self.mod}/system/bin/zapret start\n')
+        self.call('apply', self.names[1])
+
     def test_startup_never_executes_module_and_preserves_catalog_fingerprint(self):
         (self.mod / 'common.sh').write_text('echo source-called > "$MODPATH/common-called"\nexit 91\n')
         # Even the migration fallback must not run, including on older layouts.

@@ -29,6 +29,7 @@ class TvNavigationTest {
         @Volatile var calls = 0
         var selected = names[10]
         var moduleVersion = 71
+        var fastStart = "off"
         var updateState = ModuleUpdateState()
         var installs = 0
         val inspections = AtomicInteger()
@@ -37,7 +38,7 @@ class TvNavigationTest {
         val cancelReceived = CountDownLatch(1)
         override fun inspect(): ModuleInfo {
             inspections.incrementAndGet()
-            return ModuleInfo("v$moduleVersion", "running", selected, names, true, bootEnabled = true, versionCode = moduleVersion, catalogId = "fixture-v$moduleVersion")
+            return ModuleInfo("v$moduleVersion", "running", selected, names, true, bootEnabled = true, versionCode = moduleVersion, catalogId = "fixture-v$moduleVersion", fastStart = fastStart)
         }
         override fun readState(includeModule: Boolean): BackendState {
             val state = super.readState(includeModule)
@@ -56,7 +57,11 @@ class TvNavigationTest {
             return "staged"
         }
         override fun poll() = snapshot
-        override fun command(command: String, argument: String): String { calls++; if (command == "apply") selected = argument; return "ok" }
+        override fun command(command: String, argument: String): String {
+            calls++; if (command == "apply") selected = argument
+            if (command == "fast-start") fastStart = argument
+            return "ok"
+        }
         override fun launch(profile: String): String {
             snapshot = TestSnapshot("failed-test", "failed", 297, failure = "Не удалось запустить curl")
             return "started"
@@ -154,9 +159,15 @@ class TvNavigationTest {
             assertFalse(tagged(activity, "nav_0").isSelected)
         }
         screenshot(activity, "01-settings")
+        key(KeyEvent.KEYCODE_DPAD_DOWN); key(KeyEvent.KEYCODE_DPAD_DOWN)
+        instrument.runOnMainSync { assertEquals("fast_start", activity.currentFocus?.tag) }
+        key(KeyEvent.KEYCODE_DPAD_CENTER); key(KeyEvent.KEYCODE_BACK); waitForWindow(activity)
+        assertEquals(0, fake.calls)
+        instrument.runOnMainSync { app.setFastStart(true) }; waitForIdle(app)
+        instrument.runOnMainSync { assertTrue((tagged(activity, "fast_start") as Button).text.endsWith("включён")) }
         click("open_advanced")
         click("restart"); waitForIdle(app)
-        assertEquals(1, fake.calls)
+        assertEquals(2, fake.calls)
         key(KeyEvent.KEYCODE_BACK)
         instrument.runOnMainSync { assertEquals("open_advanced", activity.currentFocus?.tag) }
         click("open_about"); screenshot(activity, "01-about")

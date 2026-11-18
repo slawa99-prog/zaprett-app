@@ -124,6 +124,7 @@ esac
 ''')
     push(mod, DEVICE + '/module')
     push(PROJECT / 'src/main/assets/pocket_bridge.sh', DEVICE + '/bridge.sh')
+    push(PROJECT / 'src/main/assets/fast_network_wait.sh', DEVICE + '/fast.sh')
     # Test cold startup against complete, unmodified Pocket archives using real
     # Android ps/awk/sha256sum. No source or CLI of either module may be executed.
     for version, stock_zip in [(71, release), (72, pathlib.Path('/tmp/pocket72-test.zip'))]:
@@ -148,6 +149,65 @@ esac
         assert fingerprint() == before, 'Startup modified the installed module'
         assert elapsed < 15, f'Unexpected slow cold status: {elapsed:.2f}s'
         note(f'Cold startup with unmodified Pocket v{version}: {elapsed:.2f}s; no module changes; no test started')
+
+        # Exercise only the network wait function, never the stock firewall or
+        # service. Compare stock and opt-in with identical unreachable TCP peers.
+        def stock_action(*args, check=True, source=DEVICE+'/fast.sh'):
+            return shell('env', f'POCKET_TV_MODULE={remote}', f'POCKET_TV_BASE={DEVICE}/stock-data-{version}',
+                         f'POCKET_TV_FAST_SOURCE={source}', '/system/bin/sh', DEVICE+'/bridge.sh', *args, check=check)
+        assert '@@FAST_START off' in cold.stdout
+        original_hash = shell('sha256sum', remote+'/common.sh').stdout
+        def metadata():
+            return (shell('stat','-c','%u:%g:%a',remote+'/common.sh').stdout,
+                    shell('ls','-Zd',remote+'/common.sh').stdout)
+        original_meta = metadata()
+        assert stock_action('fast-start', 'on', source=DEVICE+'/bridge.sh', check=False).returncode != 0
+        assert shell('sha256sum', remote+'/common.sh').stdout == original_hash
+        wait_dir = DEVICE + '/wait-qa'
+        shell('mkdir', '-p', wait_dir)
+        def wait_test(body, limit=10):
+            return shell('env', f'MODPATH={remote}', f'SERVICE_DIR={wait_dir}', '/system/bin/timeout',
+                         str(limit), '/system/bin/sh', '-c', '. "$MODPATH/common.sh"\n'+body, check=False)
+        ready_with_unreachable_peers = """
+ip() {
+  case "$1" in -4) echo '1.1.1.1 via 192.0.2.1 dev eth0 src 192.0.2.5';;
+    link) echo '2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> state UP';; *) return 1;; esac
+}
+timeout() { return 1; }
+wait_for_internet
+"""
+        old = wait_test(ready_with_unreachable_peers, 4)
+        assert old.returncode != 0, 'Stock wait unexpectedly completed within 4s'
+        stock_action('fast-start', 'on')
+        stock_action('fast-start', 'on')  # idempotent, no duplicate suffix
+        assert '@@FAST_START on' in stock_action('inspect').stdout
+        assert metadata() == original_meta
+        ok = wait_test(ready_with_unreachable_peers)
+        assert ok.returncode == 0, ok.stdout
+        report = shell('cat', wait_dir+'/sv-network-wait.log').stdout.strip()
+        assert 'method=local_route' in report, report
+        fast_elapsed = int(report.split('elapsed_s=')[-1])
+        assert 1 <= fast_elapsed < 4, report
+        note(f'Pocket v{version} network wait ONLY (controlled ready Ethernet, unreachable peers): '
+             f'stock still waiting at 4s; fast = {fast_elapsed}s')
+        # Also try the emulator's real Android route, without modifying networking.
+        route_present = wait_test('sv_pocket_route >/dev/null', 4).returncode == 0
+        if route_present:
+            ok = wait_test('timeout() { return 1; }; wait_for_internet')
+            assert ok.returncode == 0 and 'method=local_route' in shell('cat', wait_dir+'/sv-network-wait.log').stdout
+            note(f'Pocket v{version}: real emulator route recognised without contacting external peers')
+        stock_action('fast-start', 'off')
+        stock_action('fast-start', 'off')
+        assert shell('sha256sum', remote+'/common.sh').stdout == original_hash
+        assert metadata() == original_meta
+        assert '@@FAST_START off' in stock_action('inspect').stdout
+        # Refuse both directions on vendor/user edits; never overwrite them.
+        shell('/system/bin/sh','-c','echo "# user edit" >> "$1"','fixture',remote+'/common.sh')
+        edited = shell('sha256sum',remote+'/common.sh').stdout
+        for arg in ['on', 'off']:
+            assert stock_action('fast-start',arg,check=False).returncode != 0
+            assert shell('sha256sum',remote+'/common.sh').stdout == edited
+        note(f'Pocket v{version}: verified opt-in and exact rollback; unknown file preserved')
 
     # The lifecycle fixture models running processes, while keeping the real
     # module resolver. Only this fixture gets a fake ps through its private PATH.

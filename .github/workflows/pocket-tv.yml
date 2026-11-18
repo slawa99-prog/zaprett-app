@@ -18,7 +18,9 @@ jobs:
           cache: gradle
       - uses: android-actions/setup-android@v4
       - name: Verify root bridge and update lifecycle
-        run: sudo python3 pocket-tv/tests/test_bridge.py
+        run: |
+          python3 pocket-tv/tests/test_fast_network.py
+          sudo python3 pocket-tv/tests/test_bridge.py
       - name: Compile UI and verify update authentication
         working-directory: pocket-tv
         run: ../gradlew testDebugUnitTest assembleDebugAndroidTest
@@ -97,7 +99,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: sv-pocket-1.2.3
+          name: sv-pocket-1.2.4
           path: |
             pocket-tv/build/outputs/apk/debug/*.apk
             pocket-tv/build/reports/

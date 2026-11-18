@@ -2,7 +2,6 @@
 Last run uses the shipping Google IFrame adapter and records actual lab availability.
 """
 import json
-import re
 import shlex
 import subprocess
 import time
@@ -34,26 +33,33 @@ def until(fun,seconds,why):
         if result:return result
         time.sleep(.35)
     raise AssertionError(why+'; state='+repr(record())+'; events='+data('qa-events')+'; activity='+sh('dumpsys','activity','activities')[-1700:])
+def key(name):
+    sh('input','keyevent','KEYCODE_'+name);time.sleep(.24)
+def screen():
+    sh('uiautomator','dump','/sdcard/svp-video-window.xml',check=False)
+    try:return list(ET.fromstring(sh('cat','/sdcard/svp-video-window.xml',check=False)).iter('node'))
+    except ET.ParseError:return []
+def focus(label, directions):
+    target=label.casefold(); seen=[]
+    for direction in [*directions,None]:
+        nodes=screen()
+        focused=[n.get('text','') for n in nodes if n.get('focused')=='true']
+        seen.append(focused)
+        if any(x.casefold()==target for x in focused):return
+        if direction:key(direction)
+    screenshot('video-focus-failure.png')
+    raise AssertionError('D-pad could not focus '+label+'; focus='+str(seen)+'; visible='+str([n.get('text') for n in nodes if n.get('text')]))
 def tap(label):
-    last=[]
-    def find():
-        sh('uiautomator','dump','/sdcard/svp-video-window.xml',check=False)
-        raw=sh('cat','/sdcard/svp-video-window.xml',check=False)
-        try:root=ET.fromstring(raw)
-        except ET.ParseError:return None
-        last[:]=[n.get('text','') for n in root.iter('node') if n.get('text')]
-        for n in root.iter('node'):
-            if n.get('text','').strip().casefold()!=label.casefold():continue
-            xy=[int(t) for t in re.findall(r'\d+',n.get('bounds',''))]
-            if len(xy)==4 and xy[2]>xy[0] and xy[3]>xy[1]:return (str((xy[0]+xy[2])//2),str((xy[1]+xy[3])//2))
-        return None
-    try:x,y=until(find,20,'Missing '+label)
-    except AssertionError:
-        print('Visible:',last,flush=True);raise
-    sh('input','tap',x,y)
+    # Android TV can consume the first touch just to move focus. Activate the
+    # focused native control with OK; TAB cycles the standard AlertDialog buttons.
+    focus(label,['TAB']*9);key('DPAD_CENTER')
 def launch():sh('am','start','-W','-n',PKG+'/.MainActivity')
 def open_tests():
-    tap('Настройки');tap('Расширенные настройки');tap('Подбор стратегий')
+    key('DPAD_LEFT')
+    focus('Настройки',['DPAD_DOWN']*3+['DPAD_UP']*2);key('DPAD_CENTER')
+    key('DPAD_RIGHT')
+    focus('Расширенные настройки',['DPAD_DOWN']*4);key('DPAD_CENTER')
+    focus('Подбор стратегий',['DPAD_DOWN']*3);key('DPAD_CENTER')
 def screenshot(name):
     pic=Path('pocket-tv/screenshots')/name;pic.parent.mkdir(exist_ok=True)
     pic.write_bytes(subprocess.check_output(['adb','exec-out','screencap','-p']))
@@ -77,10 +83,17 @@ time.sleep(2);sh('input','keyevent','KEYCODE_HOME')
 until(lambda:record().get('p')=='paused',15,'Leaving visible player failed to restore')
 assert data('qa-selection')=='C-fast' and data('qa-live')=='C-fast' and data('qa-events').splitlines().count('network')==1
 note('Saved video ranking survived process restart. Home during a retest restored C-fast without a second network scan.')
+priv('touch','files/qa-second-group')
+launch();open_tests();tap('Подбор: YouTube');tap('Продолжить видеотест')
+until(lambda:record().get('p') in ('playing','switch','ready'),35,'Could not resume next group')
+until(lambda:record().get('p') in ('done','stopped','recover','paused'),95,'Second group never finished')
+v=record()
+assert v['p']=='done' and v['win']=='F-untested' and len(v['rows'])==7 and data('qa-live')=='F-untested',v
+note('No strategy passed in first five: second group ran automatically and the sixth strategy was applied without repeating the network scan.')
 # Upstream YouTube is outside CI control. Do not silently substitute local media
 # or label a blocked embed, timeout or rate limit as a successful real playback.
 sh('am','force-stop',PKG); priv('touch','files/qa-real-player')
-launch();open_tests();tap('Подбор: YouTube');tap('Продолжить видеотест')
+launch();open_tests();tap('Подбор: YouTube');tap('Только видеотест')
 until(lambda:record().get('p') in ('playing','switch'),30,'Shipping player not started')
 until(lambda:record().get('p') in ('done','stopped','recover','paused'),180,'Shipping player did not return')
 live=record()

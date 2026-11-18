@@ -777,7 +777,7 @@ class MainActivity : Activity() {
         dialog.show()
     }
     private fun confirmStop() {
-        if(app.video.run?.phase=="recover"){ app.video.retryRestore();requestVideoTick();return }
+        if(app.video.run?.phase=="recover"){ app.video.retryRestore();if(!app.connected)app.refresh();requestVideoTick();return }
         AlertDialog.Builder(this).setTitle("Остановить подбор?").setMessage("Готовые результаты сохранятся. Вернём прежнее состояние обхода.")
             .setNegativeButton("Продолжить подбор",null).setPositiveButton("Остановить") { _,_->
                 if(app.video.locksControls) app.video.stop("Видеотест остановлен.",false) else app.control("cancel-test")

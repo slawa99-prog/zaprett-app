@@ -1,5 +1,5 @@
 #!/system/bin/sh
-# Except for the explicitly requested reversible fast-start setting, SV Pocket
+# Except for the reversible fast-start setting on known modules, SV Pocket
 # writes its own state under BASE. Pocket owns all network/firewall operations.
 umask 077
 BASE="${POCKET_TV_BASE:-/data/adb/pocket-tv}"
@@ -15,6 +15,8 @@ MAGISK_BIN="${POCKET_TV_MAGISK:-magisk}"
 [ ! -x "$RUNTIME/curl" ] || export PATH="$RUNTIME:$PATH"
 
 fail() { printf '%s\n' "$*" >&2; exit 1; }
+# Distinguish genuine contention from denied access, unsupported files and write errors.
+busy_module() { printf '%s\n' "$*" >&2; exit 75; }
 field() { printf '@@%s %s\n' "$1" "$2"; }
 phase() { printf '@@PHASE %s\n' "$1" >&2; }
 value() { cat "$1" 2>/dev/null; }
@@ -42,20 +44,20 @@ require_module() {
 acquire() {
     mkdir -p "$BASE" || fail 'Не удалось создать каталог SV Pocket.'
     if ! mkdir "$LOCK" 2>/dev/null; then
-        if alive "$LOCK/owner"; then fail 'Предыдущая операция ещё выполняется. Дождитесь её завершения.'; fi
+        if alive "$LOCK/owner"; then busy_module 'Предыдущая операция ещё выполняется. Дождитесь её завершения.'; fi
         # A missing owner may be the brief interval between mkdir and writing it.
         sleep 1
-        alive "$LOCK/owner" && fail 'Предыдущая операция ещё выполняется.'
+        alive "$LOCK/owner" && busy_module 'Предыдущая операция ещё выполняется.'
         rm -rf "$LOCK"
-        mkdir "$LOCK" 2>/dev/null || fail 'Каталог управления занят.'
+        mkdir "$LOCK" 2>/dev/null || busy_module 'Каталог управления занят.'
     fi
     identity "$$" > "$LOCK/owner"
     trap 'rm -rf "$LOCK"' EXIT
 }
 idle_required() {
-    update_in_progress && fail 'Обновление ещё устанавливается. Дождитесь завершения.'
-    [ ! -f "$STAGING/module.prop" ] || fail 'Обновление установлено. Сначала перезагрузите приставку.'
-    active && fail 'Сначала остановите подбор и дождитесь восстановления сервиса.'
+    update_in_progress && busy_module 'Обновление ещё устанавливается. Дождитесь завершения.'
+    [ ! -f "$STAGING/module.prop" ] || busy_module 'Обновление установлено. Сначала перезагрузите приставку.'
+    active && busy_module 'Сначала остановите подбор и дождитесь восстановления сервиса.'
     # A Magisk boot/start or a tester opened outside the app may not own our lock.
     # Only match the actual script and its first argument, never a shell -c string.
     snapshot=$(ps -A -o PID,ARGS 2>/dev/null) || fail 'Не удалось проверить, не запускается ли уже модуль.'
@@ -69,8 +71,8 @@ idle_required() {
         }
         END { if (testing) print "test"; else if (starting) print "start" }')
     case "$pending" in
-        test) fail 'Тестер Pocket уже запущен из терминала или WebUI. Завершите его перед этой операцией.' ;;
-        start) fail 'Модуль уже запускается. Дождитесь запуска и обновите состояние.' ;;
+        test) busy_module 'Тестер Pocket уже запущен из терминала или WebUI. Завершите его перед этой операцией.' ;;
+        start) busy_module 'Модуль уже запускается. Дождитесь запуска и обновите состояние.' ;;
     esac
 }
 stock_common=24498c2653ba009e6b090418d6d4f788650ef156d4a935332e38b8e375b41e36
@@ -110,10 +112,29 @@ set_fast_start() (
             chcon "$label" "$tmp" && [ "$(ls -Zd "$tmp" | awk '{print $1}')" = "$label" ] || fail 'Не удалось сохранить контекст файла.'
         fi
     fi
-    [ ! -e "$STAGING/module.prop" ] && [ ! -L "$common" ] && [ "$(file_hash "$common")" = "$from" ] ||
+    [ ! -e "$MOD/disable" ] && [ ! -e "$MOD/remove" ] && [ ! -e "$STAGING/module.prop" ] && [ ! -L "$common" ] && [ "$(file_hash "$common")" = "$from" ] ||
         fail 'Модуль изменился во время операции. Обновите состояние.'
     mv -f "$tmp" "$common" || fail 'Не удалось сохранить режим запуска.'
 )
+auto_fast_start() {
+    if ! (require_module) || [ ! -f "$MOD/service.sh" ]; then field FAST_AUTO unavailable; return; fi
+    # An update can replace even an already patched file. Retry against the final module.
+    if update_in_progress || [ -f "$STAGING/module.prop" ]; then field FAST_AUTO deferred; return; fi
+    case "$(fast_start_mode)" in
+        on) field FAST_AUTO already_on; return ;;
+        unsupported) field FAST_AUTO unsupported; return ;;
+    esac
+    # Release the operation lock on every exit, including transient contention.
+    ( acquire; idle_required; require_module
+      [ -f "$MOD/service.sh" ] || exit 1
+      set_fast_start on || exit 1
+      [ "$(fast_start_mode)" = on ] )
+    case "$?" in
+        0) field FAST_AUTO applied ;;
+        75) field FAST_AUTO deferred ;;
+        *) fail 'Не удалось применить быстрый запуск. Обновите состояние модуля.' ;;
+    esac
+}
 catalog_id() {
     # Preserve the existing fingerprint, but start sha256sum once for the whole
     # catalog instead of hundreds of separate processes on a TV box.
@@ -513,6 +534,7 @@ case "${1:-}" in
         [ -f "$STAGING/module.prop" ] || fail 'Нет обновления, ожидающего перезагрузки.'
         reboot ;;
     inspect) inspect ;;
+    auto-fast-start) auto_fast_start ;;
     fast-start) require_module; acquire; idle_required; set_fast_start "$2" ;;
     service-state) process_service_status ;;
     state) case "${2:-}" in full|quick) read_state "$2" ;; *) fail 'Неизвестный режим состояния.' ;; esac ;;

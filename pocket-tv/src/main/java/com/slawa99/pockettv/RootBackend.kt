@@ -5,6 +5,7 @@ import java.io.File
 import java.util.UUID
 
 interface PocketBackend {
+    fun ensureAutomaticFastStart(): FastStartResult
     fun inspect(): ModuleInfo
     fun poll(): TestSnapshot
     fun command(command: String, argument: String = ""): String
@@ -33,6 +34,12 @@ class RootBackend(private val context: Context) : PocketBackend {
                 target.outputStream().use { source.copyTo(it) }
             }
         }
+    }
+    override fun ensureAutomaticFastStart(): FastStartResult {
+        val output = run("auto-fast-start", timeout = 25)
+        return FastStartResult.entries.singleOrNull { result ->
+            output.lineSequence().any { it == "@@FAST_AUTO ${result.wire}" }
+        } ?: error("Не удалось подтвердить режим запуска.")
     }
     override fun inspect(): ModuleInfo = PocketProtocol.module(run("inspect", timeout = 25))
     override fun poll(): TestSnapshot = PocketProtocol.test(run("poll", timeout = 25))
@@ -63,7 +70,7 @@ class RootBackend(private val context: Context) : PocketBackend {
             "POCKET_TV_CURL_SOURCE=${PocketProtocol.shellQuote(it.curl.absolutePath)} " +
                 "POCKET_TV_CA_SOURCE=${PocketProtocol.shellQuote(it.certificates.absolutePath)} "
         }.orEmpty()
-        val fastEnv = if (args.firstOrNull() == "fast-start" && args.getOrNull(1) == "on")
+        val fastEnv = if (args.firstOrNull() == "auto-fast-start" || args.firstOrNull() == "fast-start" && args.getOrNull(1) == "on")
             "POCKET_TV_FAST_SOURCE=${PocketProtocol.shellQuote(fastSource.absolutePath)} " else ""
         val cmd = environment + fastEnv + "/system/bin/sh ${PocketProtocol.shellQuote(bridge.absolutePath)} " + args.joinToString(" ") { PocketProtocol.shellQuote(it) }
         return rootCommand.run(cmd, args.firstOrNull().orEmpty(), timeout)

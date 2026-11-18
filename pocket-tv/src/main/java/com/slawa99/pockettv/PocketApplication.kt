@@ -7,6 +7,7 @@ import android.net.NetworkCapabilities
 import android.os.Handler
 import android.os.Looper
 import java.net.URL
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.Executors
 import javax.net.ssl.HttpsURLConnection
 
@@ -14,7 +15,7 @@ data class HelpReport(val title: String = "Поможем восстановит
     "Проверим интернет и состояние обхода, затем предложим следующий шаг.", val ready: Boolean = false, val offline: Boolean = false,
     val phase: String = "check")
 
-class PocketApplication : Application() {
+open class PocketApplication : Application() {
     companion object {
         internal var backendFactory: ((Application) -> PocketBackend)? = null
         private const val STATE_CHECK = "Проверяем состояние обхода…"
@@ -56,6 +57,8 @@ class PocketApplication : Application() {
         (busy.isEmpty() || busy == STATE_CHECK)
     val awaitingVideo get() = prefs.getBoolean("awaiting_video", false) &&
         prefs.getString("video_strategy", "") == module.selected && prefs.getString("video_catalog", "") == module.catalogId
+    val automaticFastStart get() = prefs.getBoolean("automatic_fast_start", true)
+    private var foregroundFastCheck = false
     var automaticUpdateCheck: Boolean
         get() = prefs.getBoolean("check_updates", true)
         set(value) { prefs.edit().putBoolean("check_updates", value).apply(); notifyChanged() }
@@ -96,6 +99,7 @@ class PocketApplication : Application() {
                 main.post {
                     if (epoch != stateEpoch) return@post
                     update = state.update; state.module?.let { module = it; connected = true }; accept(state.test)
+                    state.module?.let { reconcileFastStart(it, snapshot, update) }
                     appendLog("Состояние: ${(System.nanoTime() - started) / 1_000_000} мс")
                     if (update.phase == "completed") notice = "Обновление завершено. Каталог стратегий обновлён."
                 }
@@ -147,10 +151,57 @@ class PocketApplication : Application() {
             }
         }
     }
+    private fun ensureFastStart(source: String): FastStartResult {
+        if (!automaticFastStart) return FastStartResult.OPTED_OUT
+        var detail = ""
+        val result = try { backend.ensureAutomaticFastStart() }
+            catch (e: Exception) { detail = ": " + (e.message ?: "нет ответа"); FastStartResult.FAILED }
+        // Synchronous on the serial worker: the background process can die just after jobFinished.
+        prefs.edit().putString("fast_start_last", "$source — ${result.label}$detail").commit()
+        if (result == FastStartResult.APPLIED || result == FastStartResult.ALREADY_ON) main.post {
+            if (connected && automaticFastStart && module.fastStart == "off") {
+                module = module.copy(fastStart = "on"); notifyChanged()
+            }
+        }
+        return result
+    }
+
+    internal fun afterReplacement(stamp: Long, active: AtomicBoolean, finish: (Boolean) -> Unit) {
+        worker.execute {
+            var retry = false
+            try {
+                if (active.get() && automaticFastStart) {
+                    val previous = if (prefs.getLong("fast_job_stamp", -1L) == stamp)
+                        prefs.getInt("fast_job_attempts", 0) else 0
+                    if (previous < FastStartJob.MAX_ATTEMPTS) {
+                        val attempt = previous + 1
+                        prefs.edit().putLong("fast_job_stamp", stamp).putInt("fast_job_attempts", attempt).commit()
+                        retry = ensureFastStart("После обновления APK") == FastStartResult.DEFERRED &&
+                            attempt < FastStartJob.MAX_ATTEMPTS
+                    }
+                }
+            } finally { main.post { finish(retry) } }
+        }
+    }
+
+    private fun reconcileFastStart(m: ModuleInfo, test: TestSnapshot, u: ModuleUpdateState) {
+        if (!automaticFastStart || foregroundFastCheck || !m.bootEnabled || m.fastStart != "off" ||
+            test.active || u.blocksChanges || updateRequested) return
+        foregroundFastCheck = true
+        // Publish the ordinary status immediately; migration never blocks initial screen rendering.
+        worker.execute {
+            try {
+                if (ensureFastStart("При открытом SV Pocket") == FastStartResult.DEFERRED)
+                    main.post { FastStartJob.schedule(this) }
+            } finally { main.post { foregroundFastCheck = false } }
+        }
+    }
     fun setFastStart(enabled: Boolean) {
         if (!changesAllowed || module.fastStart !in setOf("on", "off")) return
         val mode = if (enabled) "on" else "off"
         operation("Сохраняем режим запуска…") {
+            // Save an explicit opt-out before touching Pocket. A later APK must respect it.
+            check(prefs.edit().putBoolean("automatic_fast_start", enabled).commit()) { "Не удалось сохранить выбор режима запуска." }
             backend.command("fast-start", mode)
             val m = backend.inspect()
             check(m.fastStart == mode) { "Не удалось подтвердить режим. Проверьте состояние модуля." }
@@ -292,7 +343,7 @@ class PocketApplication : Application() {
                     if (epoch == stateEpoch) { update = u; accept(s); notifyChanged() }
                 }
                 val m = if (epoch == stateEpoch && (wasActive && !s.active || wasInstalling && !u.installing) && !u.installing) backend.inspect() else null
-                main.post { if (epoch == stateEpoch && m != null) { module = m; connected = true }; polling = false; notifyChanged() }
+                main.post { if (epoch == stateEpoch && m != null) { module = m; connected = true; reconcileFastStart(m, snapshot, update) }; polling = false; notifyChanged() }
             } catch (e: Exception) { main.post { polling = false; if (epoch == stateEpoch) { error = "Не удалось обновить состояние: ${e.message}"; appendLog(failureDetails(e)) }; notifyChanged() } }
         }
     }
@@ -305,6 +356,6 @@ class PocketApplication : Application() {
             finally { main.post { busy = ""; if (updateOperation) updateRequested = false; notifyChanged(); finished() } }
         }
     }
-    fun diagnosticText(): String = "SV Pocket ${BuildConfig.VERSION_NAME}\nPocket ${module.version}\nСервис: ${module.service}\nСтратегия: ${module.selected}\nСессия: ${snapshot.id}\n${snapshot.headline()}\n${snapshot.completed}/${snapshot.total}\nОбновление: ${update.phase} v${update.version}\n\n$error\n\n$operationLog\n\n${update.detail}\n\n${fullLog.ifEmpty { snapshot.tail }}"
+    fun diagnosticText(): String = "SV Pocket ${BuildConfig.VERSION_NAME}\nPocket ${module.version}\nСервис: ${module.service}\nСтратегия: ${module.selected}\nСессия: ${snapshot.id}\n${snapshot.headline()}\n${snapshot.completed}/${snapshot.total}\nОбновление: ${update.phase} v${update.version}\nБыстрый запуск: ${if (automaticFastStart) "автоматически" else "обычный"}; ${prefs.getString("fast_start_last", "автопроверка ещё не выполнялась")}\n\n$error\n\n$operationLog\n\n${update.detail}\n\n${fullLog.ifEmpty { snapshot.tail }}"
     fun serviceLabel(status: String) = when (status) { "running" -> "включён"; "stopped" -> "выключен"; "degraded" -> "нужен перезапуск"; else -> "состояние неизвестно" }
 }

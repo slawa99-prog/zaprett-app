@@ -29,7 +29,13 @@ class TvNavigationTest {
         @Volatile var calls = 0
         var selected = names[10]
         var moduleVersion = 71
-        var fastStart = "off"
+        @Volatile var fastStart = "off"
+        val automaticCalls = AtomicInteger()
+        override fun ensureAutomaticFastStart(): FastStartResult {
+            automaticCalls.incrementAndGet()
+            fastStart = "on"
+            return FastStartResult.APPLIED
+        }
         var updateState = ModuleUpdateState()
         var installs = 0
         val inspections = AtomicInteger()
@@ -160,14 +166,26 @@ class TvNavigationTest {
         }
         screenshot(activity, "01-settings")
         key(KeyEvent.KEYCODE_DPAD_DOWN); key(KeyEvent.KEYCODE_DPAD_DOWN)
-        instrument.runOnMainSync { assertEquals("fast_start", activity.currentFocus?.tag) }
-        key(KeyEvent.KEYCODE_DPAD_CENTER); key(KeyEvent.KEYCODE_BACK); waitForWindow(activity)
-        assertEquals(0, fake.calls)
-        instrument.runOnMainSync { app.setFastStart(true) }; waitForIdle(app)
-        instrument.runOnMainSync { assertTrue((tagged(activity, "fast_start") as Button).text.endsWith("включён")) }
+        expectFocus("open_advanced")
+        assertEquals("on", fake.fastStart)
+        assertEquals(1, fake.automaticCalls.get())
+        instrument.runOnMainSync { assertNull(activity.window.decorView.findViewWithTag<View>("fast_start")) }
         click("open_advanced")
+        click("fast_start"); key(KeyEvent.KEYCODE_BACK); waitForWindow(activity)
+        assertEquals(0, fake.calls)
+        instrument.runOnMainSync { app.setFastStart(false) }; waitForIdle(app)
+        instrument.runOnMainSync { app.refresh() }; waitForIdle(app)
+        assertFalse(app.automaticFastStart)
+        assertEquals("off", fake.fastStart)
+        assertEquals(1, fake.automaticCalls.get())
+        instrument.runOnMainSync {
+            assertTrue((tagged(activity, "fast_start") as Button).text.startsWith("Обычный запуск"))
+            app.setFastStart(true)
+        }; waitForIdle(app)
+        assertTrue(app.automaticFastStart)
+        assertEquals("on", fake.fastStart)
         click("restart"); waitForIdle(app)
-        assertEquals(2, fake.calls)
+        assertEquals(3, fake.calls)
         key(KeyEvent.KEYCODE_BACK)
         instrument.runOnMainSync { assertEquals("open_advanced", activity.currentFocus?.tag) }
         click("open_about"); screenshot(activity, "01-about")

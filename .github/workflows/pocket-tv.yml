@@ -72,9 +72,18 @@ jobs:
           java-version: '21'
           cache: gradle
       - uses: android-actions/setup-android@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: b843d8a0273368cca1e298ca70807329cf8fe9fe
+          path: qa-previous
+      - name: Build previous release with the same CI test signature
+        working-directory: qa-previous/pocket-tv
+        run: |
+          cp -r ../../pocket-tv/src/main/jniLibs src/main/
+          ../gradlew assembleDebug
       - name: Assemble verified APK
         working-directory: pocket-tv
-        run: ../gradlew assembleDebug assembleDebugAndroidTest
+        run: ../gradlew assembleDebug assembleDebugAndroidTest assembleUpgradeQa
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -96,10 +105,11 @@ jobs:
             adb push /tmp/pocket72-test.zip /data/local/tmp/pocket72-test.zip
             python3 pocket-tv/tests/test_android_runtime.py
             bash pocket-tv/tests/run_device_tests.sh
+            python3 pocket-tv/tests/test_apk_upgrade.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: sv-pocket-1.2.4
+          name: sv-pocket-1.2.5
           path: |
             pocket-tv/build/outputs/apk/debug/*.apk
             pocket-tv/build/reports/

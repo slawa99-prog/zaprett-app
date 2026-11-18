@@ -154,7 +154,8 @@ esac
         # service. Compare stock and opt-in with identical unreachable TCP peers.
         def stock_action(*args, check=True, source=DEVICE+'/fast.sh'):
             return shell('env', f'POCKET_TV_MODULE={remote}', f'POCKET_TV_BASE={DEVICE}/stock-data-{version}',
-                         f'POCKET_TV_FAST_SOURCE={source}', '/system/bin/sh', DEVICE+'/bridge.sh', *args, check=check)
+                         f'POCKET_TV_STAGING={DEVICE}/stock-stage-{version}', f'POCKET_TV_FAST_SOURCE={source}',
+                         '/system/bin/sh', DEVICE+'/bridge.sh', *args, check=check)
         assert '@@FAST_START off' in cold.stdout
         original_hash = shell('sha256sum', remote+'/common.sh').stdout
         def metadata():
@@ -178,8 +179,25 @@ wait_for_internet
 """
         old = wait_test(ready_with_unreachable_peers, 4)
         assert old.returncode != 0, 'Stock wait unexpectedly completed within 4s'
-        stock_action('fast-start', 'on')
-        stock_action('fast-start', 'on')  # idempotent, no duplicate suffix
+        def auto(expected):
+            res = stock_action('auto-fast-start')
+            assert '@@FAST_AUTO ' + expected in res.stdout, res.stdout
+        for flag in ['disable', 'remove']:
+            shell('touch', remote + '/' + flag); auto('unavailable'); shell('rm', remote + '/' + flag)
+            assert shell('sha256sum', remote+'/common.sh').stdout == original_hash
+        stage = DEVICE + f'/stock-stage-{version}'
+        shell('mkdir', '-p', stage); shell('touch', stage+'/module.prop')
+        auto('deferred'); assert shell('sha256sum', remote+'/common.sh').stdout == original_hash
+        shell('rm', stage+'/module.prop')
+        shell('mkdir', '-p', remote+'/config')
+        shell('/system/bin/sh','-c','echo ALT12 > "$1"','fixture',remote+'/config/current-strategy')
+        with_before = shell('cat', remote+'/config/current-strategy').stdout
+        auto('applied')
+        inode = shell('stat','-c','%i',remote+'/common.sh').stdout
+        auto('already_on')
+        assert shell('stat','-c','%i',remote+'/common.sh').stdout == inode
+        assert shell('cat', remote+'/config/current-strategy').stdout == with_before
+        assert '@@SERVICE stopped' in stock_action('inspect').stdout
         assert '@@FAST_START on' in stock_action('inspect').stdout
         assert metadata() == original_meta
         ok = wait_test(ready_with_unreachable_peers)
@@ -204,6 +222,7 @@ wait_for_internet
         # Refuse both directions on vendor/user edits; never overwrite them.
         shell('/system/bin/sh','-c','echo "# user edit" >> "$1"','fixture',remote+'/common.sh')
         edited = shell('sha256sum',remote+'/common.sh').stdout
+        auto('unsupported'); assert shell('sha256sum',remote+'/common.sh').stdout == edited
         for arg in ['on', 'off']:
             assert stock_action('fast-start',arg,check=False).returncode != 0
             assert shell('sha256sum',remote+'/common.sh').stdout == edited

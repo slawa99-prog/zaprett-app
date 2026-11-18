@@ -276,15 +276,6 @@ class MainActivity : Activity() {
         body.addView(label("Обновления и дополнительные возможности", 16, muted), rowParams())
         addControl(body, "open_updates", "Обновление обхода YouTube") { showPage(7); focusContent() }
         addControl(body, "auto_update_check", "") { app.automaticUpdateCheck = !app.automaticUpdateCheck }
-        addControl(body, "fast_start", "Быстрый запуск обхода") {
-            val enable = app.module.fastStart == "off"
-            AlertDialog.Builder(this)
-                .setTitle(if (enable) "Включить быстрый запуск?" else "Вернуть обычный запуск?")
-                .setMessage(if (enable) "Если кабель или Wi-Fi уже готовы, модуль начнёт запуск без ожидания ответа внешних сайтов. Выбор стратегии сохранится. Работает и после перезагрузки, без открытия приложения."
-                    else "Модуль вернётся к обычной проверке сети при запуске. Стратегия останется прежней.")
-                .setNegativeButton("Отмена", null)
-                .setPositiveButton(if (enable) "Включить" else "Вернуть") { _, _ -> app.setFastStart(enable) }.show()
-        }
         addControl(body, "open_advanced", "Расширенные настройки") { showPage(8); focusContent() }
         addControl(body, "open_about", "О приложении и первый запуск") { showPage(4); focusContent() }
         wireVerticalButtons(body); scrolling(content, body)
@@ -299,6 +290,15 @@ class MainActivity : Activity() {
         addControl(body, "stop", "Выключить обход") { app.control("stop") }
         addControl(body, "restart", "Перезапустить обход") { app.control("restart") }
         addControl(body, "refresh", "Проверить состояние / запросить доступ") { app.refresh() }
+        addControl(body, "fast_start", "") {
+            val enable = !app.automaticFastStart && app.module.fastStart == "off"
+            AlertDialog.Builder(this)
+                .setTitle(if (enable) "Включить быстрый запуск автоматически?" else "Вернуть обычный запуск?")
+                .setMessage(if (enable) "Когда сеть готова, обход начнёт запуск быстрее. Это действует и после перезагрузки приставки."
+                    else "Модуль вернётся к обычному ожиданию сети. SV Pocket запомнит ваш выбор и после обновлений.")
+                .setNegativeButton("Отмена", null)
+                .setPositiveButton(if (enable) "Включить" else "Вернуть") { _, _ -> app.setFastStart(enable) }.show()
+        }
         wireVerticalButtons(body); scrolling(content, body)
     }
     private fun buildUpdates() {
@@ -521,11 +521,13 @@ class MainActivity : Activity() {
             }
         }
         controls["auto_update_check"]?.text = "Проверять обновления при открытии: " + if (app.automaticUpdateCheck) "включено" else "выключено"
-        controls["fast_start"]?.text = "Быстрый запуск обхода: " + when {
-            !app.connected -> "ожидаем данные модуля"
-            m.fastStart == "on" -> "включён"
-            m.fastStart == "off" -> "выключен"
-            else -> "нужен оригинальный Pocket 71 или 72"
+        controls["fast_start"]?.text = when {
+            !app.connected -> "Режим запуска: ожидаем данные модуля"
+            m.fastStart !in setOf("on", "off") -> "Быстрый запуск: нужен оригинальный Pocket 71 или 72"
+            app.automaticFastStart && m.fastStart == "on" -> "Быстрый запуск включён · Вернуть обычный"
+            app.automaticFastStart -> "Автоматический быстрый запуск · Выбрать обычный"
+            m.fastStart == "on" -> "Завершить возврат к обычному запуску"
+            else -> "Обычный запуск · Включить автоматический быстрый запуск"
         }
         if (page == 0) {
             heroEmblem?.apply {

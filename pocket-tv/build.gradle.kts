@@ -10,8 +10,8 @@ android {
         applicationId = "com.slawa99.pockettv"
         minSdk = 28
         targetSdk = 35
-        versionCode = 12
-        versionName = "1.2.6"
+        versionCode = 13
+        versionName = "1.2.7"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     // This variant is used only in the closed-app update test. The shipped APK is debug.

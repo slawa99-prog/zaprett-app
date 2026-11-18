@@ -5,10 +5,22 @@ import android.util.AtomicFile
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.IOException
 
 class HistoryStore(context: Context) {
     private val file = AtomicFile(File(context.filesDir, "last-test.json"))
+    private var lastSaved: TestSnapshot? = null
+    private var lastBytes: ByteArray? = null
+    @Synchronized
     fun save(s: TestSnapshot) {
+        // Don't re-serialize and sync the same ranking every 3 s while a
+        // network probe is waiting. If the file is gone or different, repair it.
+        val previous = lastBytes
+        if (previous != null && lastSaved == s && file.baseFile.length() == previous.size.toLong()) {
+            val intact = try { file.openRead().use { it.readBytes().contentEquals(previous) } }
+                catch (_: IOException) { false }
+            if (intact) return
+        }
         val rows = JSONArray()
         s.results.forEach { r -> rows.put(JSONObject().put("name", r.name).put("status", r.status)
             .put("h", r.httpOk).put("ht", r.httpTotal).put("a", r.tls12Ok).put("at", r.tls12Total)
@@ -18,9 +30,12 @@ class HistoryStore(context: Context) {
             .put("tail", s.tail).put("exit", s.exitCode).put("restore", s.restore).put("failure", s.failure)
             .put("moduleVersion", s.moduleVersion).put("catalogId", s.catalogId).put("results", rows)
             .put("cancelRequested", s.cancelRequested).put("restoreStep", s.restoreStep)
+        val bytes = json.toString().toByteArray(Charsets.UTF_8)
         val stream = file.startWrite()
-        try { stream.write(json.toString().toByteArray(Charsets.UTF_8)); file.finishWrite(stream) }
+        try { stream.write(bytes); file.finishWrite(stream) }
         catch (e: Exception) { file.failWrite(stream); throw e }
+        lastSaved = s
+        lastBytes = bytes
     }
     fun load(): TestSnapshot = try {
         val json = JSONObject(file.openRead().bufferedReader().use { it.readText() })

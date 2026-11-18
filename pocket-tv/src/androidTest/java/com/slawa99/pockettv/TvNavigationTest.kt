@@ -22,6 +22,34 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class TvNavigationTest {
     private val instrument = InstrumentationRegistry.getInstrumentation()
+    @Test fun identicalProgressAvoidsWritesButChangedOrDamagedHistoryIsSaved() {
+        val dir = File(instrument.targetContext.cacheDir, "history-qa-" + System.nanoTime())
+        assertTrue(dir.mkdir())
+        val context = object : android.content.ContextWrapper(instrument.targetContext) {
+            override fun getFilesDir(): File = dir
+        }
+        try {
+            val store = HistoryStore(context)
+            val file = File(dir, "last-test.json")
+            val snapshot = TestSnapshot("same-run", "running", 300, current = "ALT12",
+                results = (1..300).map { ProbeResult("ALT" + it, "OK", 4,4,3,4,2,4) }, tail = "waiting")
+            store.save(snapshot)
+            assertTrue(file.setLastModified(1_600_000_000_000L))
+            val stamp = file.lastModified()
+            repeat(20) { store.save(snapshot.copy(results = snapshot.results.toList())) }
+            assertEquals(stamp, file.lastModified())
+            val updated = snapshot.copy(tail = "new line", cancelRequested = true)
+            store.save(updated)
+            assertEquals(updated, HistoryStore(context).load())
+            val correct = file.readBytes()
+            file.writeBytes(ByteArray(correct.size))
+            store.save(updated)
+            assertArrayEquals(correct, file.readBytes())
+            assertTrue(file.delete())
+            store.save(updated)
+            assertEquals(updated, HistoryStore(context).load())
+        } finally { dir.deleteRecursively() }
+    }
     private class FakeBackend : PocketBackend {
         val names = (1..297).map { if (it == 11) "general (ALT11)" else "strategy-${it.toString().padStart(3, '0')}" }
         var snapshot = TestSnapshot("persistent-test", "completed", 297, started = 1791072000,

@@ -265,7 +265,10 @@ prepare_curl() {
     {
         printf '#!%s\n' "$SHELL_BIN"
         cat <<'CURL_WRAPPER'
-runtime_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)" || exit 1
+case "$0" in
+    /*) runtime_dir=${0%/*} ;; # Pocket resolves this executable to an absolute path.
+    *) runtime_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)" || exit 1 ;;
+esac
 exec "$runtime_dir/curl.bin" --disable --cacert "$runtime_dir/ca-bundle.pem" "$@"
 CURL_WRAPPER
     } > "$RUNTIME/curl.tmp"
@@ -334,28 +337,42 @@ inspect() {
     if grep -q '@@RESULT' "$CLI" && grep -q '@@TESTING' "$CLI"; then field COMPATIBLE 1; else field COMPATIBLE 0; fi
     catalog | sed 's/^/@@STRATEGY /'
 }
+# Read scalar metadata without launching cat and a subshell for each field.
+# Preserve the legacy reader for multiline metadata. Missing files are empty;
+# a last line without a newline still contains its value.
+read_poll_value() {
+    poll_value=; poll_extra=
+    [ -f "$1" ] || return 0
+    {
+        IFS= read -r poll_value || :
+        if IFS= read -r poll_extra || [ -n "$poll_extra" ]; then
+            poll_value="$(value "$1")"
+        fi
+    } 2>/dev/null < "$1" || :
+}
+poll_field() { read_poll_value "$2"; field "$1" "$poll_value"; }
 poll() {
     [ -f "$SESSION/id" ] || { field STATE idle; return; }
-    field ID "$(value "$SESSION/id")"
-    state="$(value "$SESSION/state")"
+    poll_field ID "$SESSION/id"
+    read_poll_value "$SESSION/state"; state=$poll_value
     case "$state" in starting|running|restoring|cancelling)
         if ! alive "$SESSION/owner"; then
             # The runner can publish its terminal state and exit during alive().
-            state="$(value "$SESSION/state")"
+            read_poll_value "$SESSION/state"; state=$poll_value
             case "$state" in starting|running|restoring|cancelling) state=interrupted ;; esac
         fi ;;
     esac
     field STATE "$state"
-    field TOTAL "$(value "$SESSION/total")"
-    field STARTED "$(value "$SESSION/started")"
-    field PROFILE "$(value "$SESSION/profile")"
-    field EXIT "$(value "$SESSION/exit")"
-    field RESTORE "$(value "$SESSION/restore")"
+    poll_field TOTAL "$SESSION/total"
+    poll_field STARTED "$SESSION/started"
+    poll_field PROFILE "$SESSION/profile"
+    poll_field EXIT "$SESSION/exit"
+    poll_field RESTORE "$SESSION/restore"
     if [ -f "$SESSION/cancel" ]; then field CANCEL_REQUESTED 1; else field CANCEL_REQUESTED 0; fi
-    field RESTORE_STEP "$(value "$SESSION/restore-step")"
-    field ERROR "$(value "$SESSION/error")"
-    field MODULE_VERSION "$(value "$SESSION/module-version")"
-    field CATALOG_ID "$(value "$SESSION/catalog-id")"
+    poll_field RESTORE_STEP "$SESSION/restore-step"
+    poll_field ERROR "$SESSION/error"
+    poll_field MODULE_VERSION "$SESSION/module-version"
+    poll_field CATALOG_ID "$SESSION/catalog-id"
     grep -E '^@@(RESULT|TESTING) ' "$SESSION/test.log" 2>/dev/null || true
     printf '@@LOGTAIL\n'
     tail -n 35 "$SESSION/test.log" 2>/dev/null

@@ -312,6 +312,19 @@ for f in "$POCKET_TV_MODULE/strategy/"*.sh; do sha256sum "$f"; done
         self.assertIn('missing dependency', self.call('log').stdout)
         self.assertIn('curl 8.22.0', subprocess.check_output([str(self.base / 'data/runtime/curl'), '--version'], text=True))
 
+    def test_runtime_passes_exact_probe_arguments_ca_and_exit_code(self):
+        self.call('launch-test', 'youtube', 'curl-arguments')
+        self.assertIn('@@STATE completed', self.done())
+        runtime = self.base / 'data/runtime'
+        (runtime / 'curl.bin').write_text("#!/bin/sh\nprintf '%s\\000' \"$@\"\nexit 28\n")
+        args = ['-IsS', '-m', '8', '--tlsv1.2', '--tls-max', '1.2', '-w', '%{http_code}', "https://example.org/a?x=1&y=2", '', 'quote $ and space']
+        expected = b'\0'.join(s.encode() for s in ['--disable','--cacert',str(runtime/'ca-bundle.pem'),*args]) + b'\0'
+        for cmd in ([str(runtime/'curl')], ['/bin/sh','runtime/curl']):
+            probe = subprocess.run([*cmd,*args], cwd=runtime.parent, capture_output=True, timeout=5)
+            self.assertEqual(28,probe.returncode)
+            self.assertEqual(expected,probe.stdout)
+            self.assertEqual(b'',probe.stderr)
+
 class UpdateBridgeTest(BridgeTest):
     # Only run update-specific cases in this subclass.
     def test_update_is_detached_preserves_backup_and_requires_reboot(self):

@@ -378,11 +378,21 @@ open class PocketApplication : Application() {
             try {
                 val state = backend.readState(includeModule = false)
                 val u = state.update; val s = state.test; persist(s, epoch)
-                // Publish the terminal result before refreshing the catalog.
+                val inspectAfter = epoch == stateEpoch && (wasActive && !s.active || wasInstalling && !u.installing) && !u.installing
+                // Normal progress needs one UI update. For the final result
+                // keep the early notification before the slower catalog inspection.
+                if (!inspectAfter) {
+                    main.post {
+                        polling = false
+                        if (epoch == stateEpoch) { update = u; accept(s) }
+                        notifyChanged()
+                    }
+                    return@execute
+                }
                 main.post {
                     if (epoch == stateEpoch) { update = u; accept(s); notifyChanged() }
                 }
-                val m = if (epoch == stateEpoch && (wasActive && !s.active || wasInstalling && !u.installing) && !u.installing) backend.inspect() else null
+                val m = if (epoch == stateEpoch) backend.inspect() else null
                 main.post { if (epoch == stateEpoch && m != null) { module = m; connected = true; reconcileFastStart(m, snapshot, update) }; polling = false; notifyChanged() }
             } catch (e: Exception) { main.post { polling = false; if (epoch == stateEpoch) { error = "Не удалось обновить состояние: ${e.message}"; appendLog(failureDetails(e)) }; notifyChanged() } }
         }

@@ -503,11 +503,12 @@ class MainActivity : Activity() {
         val buttons = LinearLayout(this)
         listOf("read_log" to "Обновить", "copy_log" to "Скопировать", "share_log" to "Поделиться").forEach { (key, caption) ->
             val b = button(caption) { when (key) { "read_log" -> app.readLog(); "copy_log" -> copyLog(); else -> shareLog() } }
+            b.tag = key
             controls[key] = b
             buttons.addView(b, LinearLayout.LayoutParams(0, -2, 1f).apply { marginEnd = dp(8) })
         }
         body.addView(buttons, rowParams())
-        body.addView(label("Стрелки ↑ ↓ прокручивают журнал. Копирование показывает подтверждение; «Поделиться» открывает системное меню.", 13, muted), rowParams())
+        body.addView(label("Стрелки ↑ ↓ прокручивают журнал. «Поделиться» отправляет полный журнал файлом .txt.", 13, muted), rowParams())
         journal = label("", 13, muted).apply { typeface = Typeface.MONOSPACE; setPadding(dp(10), dp(10), dp(10), dp(10)); background = shape(card) }
         val scroll = ScrollView(this).apply {
             tag = "log_scroll"; isFocusable = true; isFocusableInTouchMode = true; background = focusBackground()
@@ -539,7 +540,7 @@ class MainActivity : Activity() {
         status.text = when {
             vr?.phase == "recover" -> vr.message
             vr?.phase == "restore" -> "Возвращаем прежнюю настройку обхода…"
-            vr?.phase == "switch" -> "Видеотест: включаем ${vr.owned}…"
+            vr?.phase == "switch" -> "Включаем ${vr.owned}. Затем откроется видеоплеер…"
             vr?.phase == "commit" -> "Включаем победителя: ${vr.owned}…"
             app.cancelInFlight -> "Отправляем команду остановки…"
             s.active && s.cancelRequested -> s.headline()
@@ -695,7 +696,13 @@ class MainActivity : Activity() {
             visible("update_later", u.pending)
             visible("update_details", u.phase != "idle" || app.error.isNotEmpty())
         }
-        updateRows(); journal?.text = app.diagnosticText()
+        updateRows()
+        journal?.let { view ->
+            val full = app.diagnosticText()
+            val preview = if (full.length <= 32000) full else full.take(4000) +
+                "\n\n[Показаны начало и конец. Полный журнал — в файле «Поделиться».]\n\n" + full.takeLast(28000)
+            if (view.text != preview) view.text = preview
+        }
         val focused = currentFocus
         if (focused != null && !nav.contains(focused) && (focused.visibility != View.VISIBLE || !focused.isEnabled)) {
             controls.values.firstOrNull { it.visibility == View.VISIBLE && it.isEnabled }?.requestFocus() ?: navigationButton().requestFocus()
@@ -803,9 +810,31 @@ class MainActivity : Activity() {
             Toast.makeText(this, "Журнал скопирован в буфер обмена", Toast.LENGTH_LONG).show()
         } catch (e: Exception) { Toast.makeText(this, "Копирование не удалось: ${e.message}", Toast.LENGTH_LONG).show() }
     }
+    private var preparingLog = false
     private fun shareLog() {
-        try { startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, app.diagnosticText().takeLast(180000)), "Отправить журнал SV Pocket")) }
-        catch (_: Exception) { Toast.makeText(this, "На приставке нет приложения для отправки. Используйте «Скопировать».", Toast.LENGTH_LONG).show() }
+        if (preparingLog) return
+        val targets = try { DiagnosticShare.targets(this) } catch (_: RuntimeException) { emptyList() }
+        DiagnosticShare.choose(this, targets, ::copyLog, ::sendLog)
+    }
+    private fun sendLog(target: DiagnosticShare.Target) {
+        if (preparingLog) return
+        preparingLog = true
+        val report = app.diagnosticText()
+        val context = applicationContext
+        Thread({
+            val intent = try { DiagnosticShare.attachment(context, target, report) } catch (_: Exception) { null }
+            runOnUiThread {
+                preparingLog = false
+                if (resumed && !isFinishing && !isDestroyed && page == 3) {
+                    try {
+                        if (intent != null) startActivity(intent) else throw java.io.IOException()
+                    } catch (_: Exception) {
+                        DiagnosticShare.choose(this, emptyList(), ::copyLog, ::sendLog,
+                            if (intent == null) "Не удалось подготовить файл журнала." else "Приложение для отправки недоступно.")
+                    }
+                }
+            }
+        }, "pocket-log-export").start()
     }
     private fun openVideo(smart: Boolean, feedback: Boolean = false) {
         val names = if (smart) listOf("com.teamsmart.videomanager.tv", "com.teamsmart.videomanager.tv.beta")

@@ -99,15 +99,20 @@ class BridgeTest(unittest.TestCase):
         for key,val in dict(id='trial-1',state='completed',profile='youtube',**{'catalog-id':digest}).items():
             (session/key).write_text(val+'\n')
         original='general'; other=self.names[1]
+        cli=self.mod/'system/bin/zapret'
+        cli.write_text(FAKE.replace("strategy) IFS=", "strategy) printf 'Select strategy name: ' >&2; IFS=")
+            .replace("start|restart) echo", "start|restart) printf 'module status: ' >&2; echo"))
         def switch(act,goal=other,cat=digest):
-            return self.call('video-transition',act,'trial-1',cat,original,goal).stdout
-        self.assertIn('@@VIDEO ready',switch('try'))
+            # Match the APK's su transport, where stderr and stdout share one pipe.
+            return subprocess.check_output(['/bin/sh', str(BRIDGE), 'video-transition',act,'trial-1',cat,original,goal],
+                env=self.env, stderr=subprocess.STDOUT, text=True)
+        self.assertEqual(['@@VIDEO ready'],switch('try').splitlines())
         self.assertEqual(original,(self.mod/'config/current-strategy').read_text().strip())
         self.assertIn('@@VIDEO changed',switch('commit',cat='old'))
         self.assertIn('@@VIDEO restored',switch('restore-off'))
         self.assertEqual('stopped',(self.mod/'state').read_text().strip())
         self.assertIn('@@VIDEO ready',switch('try'))
-        self.assertIn('@@VIDEO committed',switch('commit'))
+        self.assertEqual(['@@VIDEO committed'],switch('commit').splitlines())
         self.assertEqual(other,(self.mod/'config/current-strategy').read_text().strip())
         self.assertEqual('running',(self.mod/'state').read_text().strip())
         self.assertIn('@@VIDEO changed',switch('try',original))

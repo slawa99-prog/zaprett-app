@@ -5,6 +5,19 @@ import java.util.concurrent.TimeUnit
 
 internal class RootCommandFailure(message: String, val diagnostic: String) : IllegalStateException(message)
 
+internal fun videoReply(action: String, target: String, output: String): String {
+    val expected = when (action) {
+        "try" -> setOf("ready", "no_service", "changed")
+        "commit" -> setOf("committed", "changed")
+        "restore-on", "restore-off" -> setOf("restored", "changed")
+        else -> error("Неизвестная операция видеотеста.")
+    }
+    val record = output.lineSequence().filter { it.startsWith("@@VIDEO ") }.singleOrNull()
+    return record?.removePrefix("@@VIDEO ")?.takeIf(expected::contains)
+        ?: throw RootCommandFailure("Модуль не подтвердил переключение стратегии $target. Подробности в журнале.",
+            "Видео: $action, $target; некорректный ответ Pocket:\n" + output.takeLast(1600))
+}
+
 /** Process I/O is separate from Android so EOF and timeout behaviour is tested. */
 internal class RootCommand(private val start: (String) -> Process = {
     ProcessBuilder("su", "-c", it).redirectErrorStream(true).start()

@@ -270,6 +270,53 @@ wait_for_internet
     assert shell('cat', DEVICE + '/module/calls').stdout == old_calls
     assert 'curl 8.22.0' in shell(DEVICE + '/data/runtime/curl', '--version').stdout
     note('Failed preflight preserves prior session and does not stop the service')
+    # The APK merges both streams of su. Exercise the exact stock menu functions
+    # on Android; service changes are modelled by a file, never by the stock CLI.
+    for version in (71, 72):
+        stock_cli = (tmp / f'stock-{version}/system/bin/zapret').read_text()
+        def function(name):
+            start = stock_cli.index(name + '() {')
+            return stock_cli[start:stock_cli.index('\n}', start) + 2] + '\n'
+        mini = tmp / f'video-module-{version}'
+        for sub in ('system/bin', 'config', 'strategy'):
+            (mini/sub).mkdir(parents=True)
+        (mini/'module.prop').write_text(f'author=sevcator\nversion=v{version}\nversionCode={version}\n')
+        (mini/'state').write_text('running\n')
+        (mini/'config/current-strategy').write_text('ALT12\n')
+        for name in ('ALT12','2alt2'):
+            (mini/'strategy'/f'{name}.sh').write_text('# test fixture\n')
+        (mini/'system/bin/zapret').write_text('''mod="$POCKET_TV_MODULE"; STRATEGY_DIR="$mod/strategy"
+CURRENT_STRATEGY_FILE="$mod/config/current-strategy"
+current_strategy() { cat "$CURRENT_STRATEGY_FILE"; }
+''' + function('list_strategies') + function('strategy_command') + '''
+case "$1" in
+  strategy) strategy_command "$2";;
+  start|restart) cat "$CURRENT_STRATEGY_FILE" > "$mod/live"; echo running > "$mod/state";;
+  stop) echo stopped > "$mod/state";;
+  *) exit 2;;
+esac
+''')
+        remote = DEVICE + f'/video-module-{version}'
+        base = DEVICE + f'/video-data-{version}'
+        push(mini, remote)
+        overrides = {'POCKET_TV_MODULE': remote, 'POCKET_TV_BASE': base}
+        info = bridge('inspect', overrides=overrides).stdout.splitlines()
+        digest = next(x.split()[1] for x in info if x.startswith('@@CATALOG_ID '))
+        session = tmp / f'video-session-{version}'; session.mkdir()
+        for key, val in {'id':'retained','state':'completed','profile':'youtube','catalog-id':digest}.items():
+            (session/key).write_text(val+'\n')
+        shell('mkdir','-p',base); push(session,base+'/session')
+        def transition(action, result):
+            wire = bridge('video-transition',action,'retained',digest,'ALT12','2alt2',overrides=overrides).stdout
+            assert wire.splitlines() == ['@@VIDEO '+result], repr(wire)
+        transition('try','ready')
+        assert shell('cat',remote+'/live').stdout.strip() == '2alt2'
+        assert shell('cat',remote+'/config/current-strategy').stdout.strip() == 'ALT12'
+        transition('commit','committed')
+        assert shell('cat',remote+'/config/current-strategy').stdout.strip() == '2alt2'
+        transition('restore-on','restored')
+        assert shell('cat',remote+'/live').stdout.strip() == 'ALT12'
+        note(f'Pocket v{version} stock interactive selector with merged Android output: standalone ready, committed, restored; retained session, no network scan')
     server.shutdown()
     run('adb', 'reverse', '--remove', f'tcp:{port}')
     shell('rm', '-rf', DEVICE)

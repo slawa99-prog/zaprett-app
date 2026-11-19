@@ -6,6 +6,18 @@ import org.junit.Test
 class RootCommandTest {
     private fun shell() = RootCommand { ProcessBuilder("/bin/sh", "-c", it).redirectErrorStream(true).start() }
 
+    @Test fun videoOnlyAcceptsOneStandaloneConfirmationForTheRequestedAction() {
+        for (bad in listOf("", "Select strategy name: @@VIDEO ready", "@@VIDEO committed",
+                "@@VIDEO ready\n@@VIDEO ready", "@@VIDEO ready!")) {
+            val e = assertThrows(RootCommandFailure::class.java) { videoReply("try", "2alt2", bad) }
+            assertTrue(e.diagnostic.contains("2alt2"))
+        }
+        assertEquals("ready", videoReply("try", "2alt2", "@@VIDEO ready\n"))
+        assertEquals("no_service", videoReply("try", "2alt2", "Pocket: failure\n@@VIDEO no_service\n"))
+        assertEquals("restored", videoReply("restore-on", "2alt2", "@@VIDEO restored"))
+        assertEquals("committed", videoReply("commit", "2alt2", "@@VIDEO committed"))
+    }
+
     @Test fun nonInteractiveCommandsReceiveEofBeforeWaitingForExit() {
         // An open stdin pipe used to leave this command waiting until timeout.
         assertEquals("finished", shell().run("cat >/dev/null; printf finished", "state", 2))

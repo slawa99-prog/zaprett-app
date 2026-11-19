@@ -59,8 +59,7 @@ class RootBackend(private val context: Context) : PocketBackend {
         require(action in setOf("try", "commit", "restore-on", "restore-off") && session.matches(Regex("[A-Za-z0-9-]{1,100}")))
         require(catalog.matches(Regex("[0-9a-f]{64}")) && PocketProtocol.safeName(original) && PocketProtocol.safeName(target))
         val out = run("video-transition", action, session, catalog, original, target, timeout = 240)
-        return out.lineSequence().singleOrNull { it.startsWith("@@VIDEO ") }?.substringAfter(' ')
-            ?: error("Модуль не подтвердил результат видеотеста.")
+        return videoReply(action, target, out)
     }
     override fun launch(profile: String) = launchWithId(profile, UUID.randomUUID().toString())
     override fun launchWithId(profile: String, id: String): String {

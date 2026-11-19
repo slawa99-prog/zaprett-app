@@ -30,7 +30,13 @@ open class PocketApplication : Application() {
     private val backend by lazy { backendFactory?.invoke(this) ?: RootBackend(this) }
     internal val video: VideoTournament by lazy {
         VideoTournament(this,worker,main,{ action, run, target ->
-            backend.videoTransition(action,run.id,run.catalog,run.original,target)
+            val began = android.os.SystemClock.elapsedRealtime()
+            fun logStep(result: String) {
+                val elapsed = android.os.SystemClock.elapsedRealtime() - began
+                main.post { appendLog("Видеотест: $action · $target · ${elapsed} мс · $result") }
+            }
+            try { backend.videoTransition(action,run.id,run.catalog,run.original,target).also(::logStep) }
+            catch (e: Exception) { logStep(failureDetails(e)); throw e }
         },{ refreshState ->
             notifyChanged()
             if (refreshState) refresh()

@@ -100,7 +100,7 @@ class TvNavigationTest {
             snapshot = TestSnapshot("failed-test", "failed", 297, failure = "Не удалось запустить curl")
             return "started"
         }
-        override fun log() = "Fake Pocket log\n".repeat(200)
+        override fun log() = "QA-DIAG-FIRST\n" + "Строка журнала\n".repeat(50000) + "QA-DIAG-LAST"
     }
     private fun tagged(activity: Activity, tag: String): View = activity.window.decorView.findViewWithTag(tag)
     private fun key(code: Int) {
@@ -220,7 +220,32 @@ class TvNavigationTest {
         repeat(8) { key(KeyEvent.KEYCODE_DPAD_DOWN) }
         screenshot(activity, "01-about-bottom")
         key(KeyEvent.KEYCODE_BACK)
-        click("open_advanced"); click("open_strategies")
+        click("open_advanced"); click("open_log"); waitForIdle(app)
+        click("share_log")
+        val shareName = "SV QA: получить журнал"
+        val match = instrument.uiAutomation.rootInActiveWindow.findAccessibilityNodeInfosByText(shareName).first()
+        val box = android.graphics.Rect().also { match.getBoundsInScreen(it) }
+        shell("input tap ${box.centerX()} ${box.centerY()}")
+        instrument.uiAutomation.waitForIdle(200, 4000)
+        if (instrument.uiAutomation.rootInActiveWindow?.findAccessibilityNodeInfosByText(shareName)?.isNotEmpty() == true)
+            key(KeyEvent.KEYCODE_DPAD_CENTER)
+        var log = ""
+        for (i in 1..30) {
+            log = String(shell("logcat -d -s SVPocketShareQA:I"))
+            if ("FULL_READ_ONLY_FILE" in log) break
+            Thread.sleep(150)
+        }
+        assertTrue("Receiver did not read the full log: $log", "FULL_READ_ONLY_FILE" in log)
+        waitForWindow(activity)
+        instrument.runOnMainSync {
+            assertTrue(tagged(activity, "share_log").isShown)
+            var copied = false
+            val none = DiagnosticShare.choose(activity, emptyList(), { copied = true }, { fail("No receiver expected") })
+            none.getButton(AlertDialog.BUTTON_NEUTRAL).performClick()
+            assertTrue(copied)
+        }
+        waitForWindow(activity)
+        key(KeyEvent.KEYCODE_BACK); click("open_strategies")
         val list = tagged(activity, "strategy_list") as ListView
         instrument.runOnMainSync { list.requestFocus(); list.setSelection(0) }
         waitForList(list)

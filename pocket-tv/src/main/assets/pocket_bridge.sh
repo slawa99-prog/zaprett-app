@@ -541,9 +541,22 @@ run_test() {
 
 # A video trial changes the live service, not the strategy selected for the next boot.
 # Pocket 71/72 reads the selection when it starts; "strategy" alone does not restart it.
+video_cli() (
+    # Stock Pocket prints its selection prompt to stderr WITHOUT a newline.
+    # su merges streams. Keep all CLI chatter (also from restart) off the
+    # protocol channel; report only bounded, clearly labelled errors.
+    trace=$(mktemp "$BASE/.video-cli.XXXXXX") || fail 'Не удалось подготовить журнал переключения.'
+    trap 'rm -f "$trace"' EXIT
+    "$SHELL_BIN" "$CLI" "$@" >"$trace" 2>&1 && exit 0
+    rc=$?
+    printf '\nPocket %s: код %s\n' "$1" "$rc" >&2
+    tail -c 1600 "$trace" | sed 's/^/Pocket: /' >&2
+    printf '\n' >&2
+    exit "$rc"
+)
 video_select() {
     [ "$(value "$MOD/config/current-strategy")" = "$1" ] && return 0
-    printf '%s\n' "$1" | "$SHELL_BIN" "$CLI" strategy >/dev/null &&
+    printf '%s\n' "$1" | video_cli strategy &&
         [ "$(value "$MOD/config/current-strategy")" = "$1" ]
 }
 video_transition() {
@@ -575,20 +588,20 @@ video_transition() {
               trap 'exit 1' HUP INT TERM
               video_select "$wanted" || exit 1
               ok=0
-              if "$SHELL_BIN" "$CLI" "$run" >/dev/null && [ "$(service_status)" = running ]; then ok=1; fi
+              if video_cli "$run" && [ "$(service_status)" = running ]; then ok=1; fi
               [ "$(value "$MOD/config/current-strategy")" = "$wanted" ] && video_select "$original" || exit 1
               if [ "$ok" = 1 ]; then field VIDEO ready; else field VIDEO no_service; fi ) ;;
         commit)
-            video_select "$wanted" && "$SHELL_BIN" "$CLI" "$run" >/dev/null &&
+            video_select "$wanted" && video_cli "$run" &&
                 [ "$(service_status)" = running ] && [ "$(value "$MOD/config/current-strategy")" = "$wanted" ] ||
                 fail 'Не удалось включить победителя видеотеста.'
             field VIDEO committed ;;
         restore-on|restore-off)
             video_select "$original" || fail 'Не удалось вернуть сохранённую стратегию.'
             if [ "$action" = restore-on ]; then
-                "$SHELL_BIN" "$CLI" "$run" >/dev/null && [ "$(service_status)" = running ] || fail 'Не удалось восстановить прежний обход.'
+                video_cli "$run" && [ "$(service_status)" = running ] || fail 'Не удалось восстановить прежний обход.'
             elif [ "$before" != stopped ]; then
-                "$SHELL_BIN" "$CLI" stop >/dev/null && [ "$(service_status)" = stopped ] || fail 'Не удалось вернуть выключенное состояние.'
+                video_cli stop && [ "$(service_status)" = stopped ] || fail 'Не удалось вернуть выключенное состояние.'
             fi
             field VIDEO restored ;;
     esac

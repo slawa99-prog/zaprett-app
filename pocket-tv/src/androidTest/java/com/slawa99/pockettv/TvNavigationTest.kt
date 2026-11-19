@@ -237,13 +237,13 @@ class TvNavigationTest {
         }
         assertTrue("Receiver did not read the full log: $log", "FULL_READ_ONLY_FILE" in log)
         waitForWindow(activity)
+        val copied = CountDownLatch(1)
         instrument.runOnMainSync {
             assertTrue(tagged(activity, "share_log").isShown)
-            var copied = false
-            val none = DiagnosticShare.choose(activity, emptyList(), { copied = true }, { fail("No receiver expected") })
+            val none = DiagnosticShare.choose(activity, emptyList(), { copied.countDown() }, { fail("No receiver expected") })
             none.getButton(AlertDialog.BUTTON_NEUTRAL).performClick()
-            assertTrue(copied)
         }
+        assertTrue("The dialog must deliver its posted Copy callback", copied.await(4, TimeUnit.SECONDS))
         waitForWindow(activity)
         key(KeyEvent.KEYCODE_BACK); click("open_strategies")
         val list = tagged(activity, "strategy_list") as ListView

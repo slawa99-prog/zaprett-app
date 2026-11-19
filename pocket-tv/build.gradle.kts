@@ -1,0 +1,35 @@
+plugins {
+    id("com.android.application") version "8.13.2"
+    id("org.jetbrains.kotlin.android") version "2.2.21"
+}
+
+android {
+    namespace = "com.slawa99.pockettv"
+    compileSdk = 36
+    defaultConfig {
+        applicationId = "com.slawa99.pockettv"
+        minSdk = 28
+        targetSdk = 35
+        versionCode = 14
+        versionName = "1.2.8"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+    // This variant is used only in the closed-app update test. The shipped APK is debug.
+    buildTypes {
+        create("upgradeQa") { initWith(getByName("debug")); matchingFallbacks += "debug" }
+    }
+    buildFeatures { buildConfig = true }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    kotlinOptions { jvmTarget = "17" }
+    packaging { jniLibs { useLegacyPackaging = true; keepDebugSymbols += "**/libpocketcurl.so" } }
+}
+
+dependencies {
+    implementation("androidx.core:core:1.13.1")
+    testImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+}

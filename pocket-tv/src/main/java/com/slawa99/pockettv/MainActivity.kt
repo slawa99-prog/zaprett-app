@@ -87,7 +87,7 @@ class MainActivity : Activity() {
         return try {
             startActivityForResult(Intent(this,VideoProbeActivity::class.java)
                 .putExtra("token",t.token).putExtra("candidate",t.name).putExtra("index",t.index).putExtra("count",t.total)
-                .putExtra("network",t.network).putExtra("clip",t.clip).putExtra("reply",reply),rc)
+                .putExtra("network",t.network).putExtra("clip",t.clip).putExtra("passes",t.passes).putExtra("reply",reply),rc)
             true
         } catch(e:Exception){ probeRequests.remove(rc);false }
     }
@@ -523,7 +523,7 @@ class MainActivity : Activity() {
         body.addView(brandLogo(), LinearLayout.LayoutParams(dp(210), dp(38)).apply { bottomMargin = dp(8) })
         body.addView(label("Приложение от мастера Святослава для удобной настройки обхода на Android TV.", 16, mint), rowParams())
         body.addView(label("Для первого запуска:\n1. Установите модуль Zapret Pocket через Magisk и перезагрузите приставку.\n2. Разрешите SV Pocket права суперпользователя.\n3. Откройте «Настройки → Расширенные настройки → Подбор» и запустите проверку каталога.\n4. Выберите результат: приложение сохранит стратегию и перезапустит сервис.", 16), rowParams())
-        body.addView(label("Каталог читается из установленного модуля. Отдельно скачивать стратегии не нужно. Команды сверены с исходниками Pocket v71 и v72; ранние версии без маркеров результатов потребуется обновить.\n\nПодбор может длиться несколько часов. Закрытие приложения его не останавливает; перезагрузка приставки прерывает проверку. Частичные результаты сохраняются. После проверки возвращается прежнее состояние сервиса.\n\nНе запускайте одновременно второй модуль Zapret или тестер в терминале/WebUI. При смене провайдера запустите новый подбор: сохранённая оценка относится к предыдущей проверке.\n\nРейтинг основан на ответах сетевых проб Pocket. Дополнительные проверки модуля доступны в журнале. После сетевого подбора YouTube приложение на открытом экране сравнивает ролик во встроенном плеере группами по пять. Первой становится стратегия, быстрее начавшая непрерывное воспроизведение 20 секунд. Проверка в отдельных YouTube и SmartTube остаётся доступной.\n\nОбновить установленный модуль можно в разделе «Настройки → Обновление обхода». Установка начинается после подтверждения и завершается перезагрузкой. Приложение не является официальным клиентом sevcator.", 14, muted), rowParams())
+        body.addView(label("Каталог читается из установленного модуля. Отдельно скачивать стратегии не нужно. Команды сверены с исходниками Pocket v71 и v72; ранние версии без маркеров результатов потребуется обновить.\n\nПодбор может длиться несколько часов. Закрытие приложения его не останавливает; перезагрузка приставки прерывает проверку. Частичные результаты сохраняются. После проверки возвращается прежнее состояние сервиса.\n\nНе запускайте одновременно второй модуль Zapret или тестер в терминале/WebUI. При смене провайдера запустите новый подбор: сохранённая оценка относится к предыдущей проверке.\n\nРейтинг основан на ответах сетевых проб Pocket. Дополнительные проверки модуля доступны в журнале. После сетевого подбора YouTube приложение на открытом экране сравнивает ролик во встроенном плеере группами по пять. Приложение ищет хотя бы ${VideoRank.MIN_PASSES} разные стратегии, на которых ролик шёл 20 секунд без остановок. Оно завершает текущую группу и включает ту из всех прошедших, с которой видео стартовало быстрее всего. При равном времени действует сетевой рейтинг. Если успешных стратегий меньше, сохраняется прежний выбор. Проверка в отдельных YouTube и SmartTube остаётся доступной.\n\nОбновить установленный модуль можно в разделе «Настройки → Обновление обхода». Установка начинается после подтверждения и завершается перезагрузкой. Приложение не является официальным клиентом sevcator.", 14, muted), rowParams())
         scrolling(content, body).apply {
             tag = "about_scroll"; isFocusable = true; isFocusableInTouchMode = true
             nextFocusLeftId = navigationButton().id
@@ -657,9 +657,12 @@ class MainActivity : Activity() {
             progress?.apply { isIndeterminate = s.status in setOf("starting", "restoring", "cancelling"); max = maxOf(1, s.total); progress = s.completed }
             progressCount?.text = if (s.id.isEmpty()) "Доступно ${m.strategies.size} стратегий. Проверяется весь каталог модуля."
                 else "Обработано ${s.completed} из ${s.total}  ·  пропущено ${s.results.count { it.status == "SKIP" }}  ·  ${formatTime(s.started)}"
-            if(run!=null && run.rows.isNotEmpty()) progressCount?.text = "Сетевые проверки: ${s.completed} из ${s.total} · видеотест: ${run.rows.size} · прошли: ${run.rows.count { it.passed }}"
+            if (run!=null && run.queue.isNotEmpty()) progressCount?.text = "Сеть: ${s.completed}/${s.total} · проверено видео: ${run.rows.size}/${run.queue.size} · воспроизвели: ${run.passCount}"
             subtitle?.text = when {
-                run?.phase=="done" -> "Первой показана включённая стратегия. Запасные тоже воспроизвели видео во встроенном плеере."
+                run?.phase=="done" -> "Первой показана стратегия с самым быстрым стартом видео среди проверенных."
+                run!=null && run.phase in setOf("ready","switch","playing") -> if (run.passCount >= VideoRank.MIN_PASSES)
+                    "Рабочих стратегий достаточно. Заканчиваем текущую группу и сравниваем время старта."
+                    else "Для автоматического выбора нужны ${VideoRank.MIN_PASSES} разные стратегии с 20 секундами видео без остановок."
                 run?.phase=="paused" -> "Для продолжения: «Подбор: YouTube» → «Продолжить видеотест»."
                 !app.connected && s.id.isEmpty() -> "Откройте помощь и подключите модуль."
                 !m.compatible && app.connected -> "Эта версия модуля не поддерживает результаты подбора для приложения."
@@ -780,7 +783,7 @@ class MainActivity : Activity() {
     private fun confirmTest(profile: String) {
         val youtube=profile=="youtube"
         val dialog=AlertDialog.Builder(this).setTitle(if(youtube) "Подобрать и включить стратегию YouTube?" else "Проверить все сервисы?")
-            .setMessage(if(youtube) "Сначала проверим адреса YouTube по каталогу (${app.module.strategies.size} стратегий). Это может занять несколько часов; приложение можно закрыть. Затем на открытом экране проверим реальное видео группами по пять. Победитель будет включён автоматически. Во время переключений интернет может прерываться."
+            .setMessage(if(youtube) "Сначала проверим адреса YouTube по каталогу (${app.module.strategies.size} стратегий). Это может занять несколько часов; приложение можно закрыть. Затем на открытом экране проверим реальное видео группами по пять. Когда видео пройдёт на ${VideoRank.MIN_PASSES} разных стратегиях, закончим начатую группу и включим стратегию с самым быстрым стартом. Если прошедших меньше, оставим прежнюю настройку. Во время переключений интернет может прерываться."
                 else "Тестер проверит стандартные адреса разных сервисов Pocket. После окончания восстановится прежнее состояние сервиса.")
             .setNegativeButton("Отмена",null).setPositiveButton("Начать подбор") { _,_-> app.launch(profile) }
         if(youtube && VideoRank.candidates(app.snapshot,app.module).isNotEmpty()) {

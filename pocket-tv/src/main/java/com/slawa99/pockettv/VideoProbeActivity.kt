@@ -47,13 +47,16 @@ class VideoProbeActivity : Activity() {
             orientation=LinearLayout.VERTICAL; setBackgroundColor(Color.rgb(12,27,30)); setPadding(pad,pad,pad,pad)
         }
         val idx=intent.getIntExtra("index",1); val count=intent.getIntExtra("count",1)
-        val endGroup=minOf(((idx-1)/5+1)*5,count)
+        val group=(idx-1)/VideoRank.GROUP+1
+        val passes=intent.getIntExtra("passes",0)
         page.addView(label("SV Pocket  /  Видеотест YouTube",18f,Color.rgb(115,247,210)))
         val row=LinearLayout(this)
         val frame=FrameLayout(this); row.addView(frame,LinearLayout.LayoutParams(0,-1,2f))
         val panel=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(pad,0,0,0); gravity=Gravity.CENTER_VERTICAL }
         panel.addView(label("Проверяется: " + intent.getStringExtra("candidate"),22f))
-        panel.addView(label("Кандидат $idx из $endGroup · группа ${(idx-1)/5+1}",15f))
+        panel.addView(label("Кандидат $idx из $count · группа $group",15f))
+        panel.addView(label(if (passes >= VideoRank.MIN_PASSES) "Воспроизвели: $passes · завершаем группу"
+            else "Воспроизвели: $passes · для выбора нужно ${VideoRank.MIN_PASSES}",15f))
         if(intent.getIntExtra("clip",0)==1) panel.addView(label("Резервный контрольный ролик",14f,Color.rgb(115,247,210)))
         status=label("Открываем видеоплеер…",16f)
         panel.addView(status)

@@ -10,6 +10,24 @@ import org.json.JSONObject
 internal data class VideoRun(val id: String, val catalog: String, val original: String, val wasOn: Boolean,
     val queue: List<String>, val network: Long, val rows: List<VideoMark> = emptyList(), val phase: String = "ready",
     val owned: String = "", val token: String = "", val message: String = "", val winner: String = "", val clip: Int = 0, val firstClipError: String = "") {
+    val passCount get() = VideoRank.winners(rows).size
+
+    fun diagnosticText() = buildString {
+        append("$phase · проверено: ${rows.size}/${queue.size} · воспроизвели видео: $passCount")
+        if (message.isNotBlank()) append(" · ").append(message)
+        if (rows.isNotEmpty()) {
+            append("\nРезультаты плеера по порядку проверки:")
+            rows.forEachIndexed { i, row ->
+                append("\n").append(i + 1).append(". ").append(row.name).append(" — ")
+                if (row.passed) append("20 с без остановок; время до старта видео: ${row.startMs} мс")
+                else {
+                    append(row.description())
+                    if (row.detail.isNotBlank()) append(" · ").append(row.detail)
+                }
+            }
+        }
+    }
+
     fun encode() = JSONObject().put("id", id).put("cat", catalog).put("orig", original).put("on", wasOn)
         .put("q", JSONArray(queue)).put("net", network).put("p", phase).put("o", owned).put("t", token)
         .put("clip", clip).put("firstClipError", firstClipError).put("msg", message).put("win", winner).put("rows", JSONArray().also { arr -> rows.forEach {
@@ -26,7 +44,7 @@ internal data class VideoRun(val id: String, val catalog: String, val original: 
     }
 }
 
-internal data class VideoTicket(val token: String, val name: String, val index: Int, val total: Int, val network: Long, val clip: Int)
+internal data class VideoTicket(val token: String, val name: String, val index: Int, val total: Int, val network: Long, val clip: Int, val passes: Int)
 
 internal class VideoTournament(context: Context, private val worker: Executor, private val main: Handler,
     private val command: (String, VideoRun, String) -> String, private val changed: (Boolean) -> Unit) {
@@ -93,15 +111,23 @@ internal class VideoTournament(context: Context, private val worker: Executor, p
         if (!matches(s,m) || s.active || network == 0L || network != v.network) {
             stop("Сеть или каталог изменились. Запустите подбор для этого подключения.", false); return
         }
-        if (VideoRank.finished(v.rows, v.queue.size)) {
-            val winner = VideoRank.winners(v.rows).firstOrNull()?.name
-            if (winner == null) stop("Ни одна проверенная стратегия не воспроизвела ролик.", false)
-            else change("commit", v.copy(phase="commit",owned=winner), winner) { outcome ->
-                if (outcome == "committed" && stopping.isEmpty()) {
-                    store(run!!.copy(phase="done",winner=winner,owned="",token="",message="Видеотест завершён. Включена $winner.")); changed(true)
-                } else handleFailure(outcome)
+        when (val decision = VideoRank.decide(v.rows, v.queue.size)) {
+            is VideoDecision.KeepOriginal -> {
+                val why = if (decision.passes == 0) "Ни одна проверенная стратегия не воспроизвела ролик."
+                    else "Проверены все кандидаты. Видео воспроизвели: ${decision.passes}; для автоматического выбора нужно ${VideoRank.MIN_PASSES}. Успешную стратегию можно выбрать вручную."
+                stop(why, false)
+                return
             }
-            return
+            is VideoDecision.Apply -> {
+                val winner = decision.winner.name
+                change("commit", v.copy(phase="commit",owned=winner), winner) { outcome ->
+                    if (outcome == "committed" && stopping.isEmpty()) {
+                        store(run!!.copy(phase="done",winner=winner,owned="",token="",message="Видеотест завершён. Включена $winner.")); changed(true)
+                    } else handleFailure(outcome)
+                }
+                return
+            }
+            VideoDecision.Continue -> Unit
         }
         val name = v.queue[v.rows.size]
         val trial = v.copy(phase="switch",owned=name,token=UUID.randomUUID().toString())
@@ -111,7 +137,7 @@ internal class VideoTournament(context: Context, private val worker: Executor, p
             else if (outcome != "ready") handleFailure(outcome)
             else {
                 store(run!!.copy(phase="playing"))
-                val launched = host?.invoke(VideoTicket(trial.token,name,trial.rows.size+1,trial.queue.size,trial.network,trial.clip)) == true
+                val launched = host?.invoke(VideoTicket(trial.token,name,trial.rows.size+1,trial.queue.size,trial.network,trial.clip,trial.passCount)) == true
                 if (!launched) stop("Видеоплеер не открыт. Вернитесь к видеотесту.", true)
                 else changed(false)
             }

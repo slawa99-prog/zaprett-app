@@ -11,16 +11,32 @@ internal data class VideoMark(val name: String, val status: String, val startMs:
     }
 }
 
+internal sealed interface VideoDecision {
+    data object Continue : VideoDecision
+    data class Apply(val winner: VideoMark) : VideoDecision
+    data class KeepOriginal(val passes: Int) : VideoDecision
+}
+
 internal object VideoRank {
     const val GROUP = 5
+    const val MIN_PASSES = 3
     fun candidates(s: TestSnapshot, m: ModuleInfo): List<String> =
         if (s.status != "completed" || s.profile != "youtube" || s.restore == "failed" || !s.matches(m)) emptyList()
         else s.ranked.filter { it.status == "OK" && it.total > 0 && it.name in m.strategies && PocketProtocol.safeName(it.name) }
             .map { it.name }.distinct()
-    fun finished(rows: List<VideoMark>, count: Int) = rows.size >= count ||
-        (rows.isNotEmpty() && rows.size % GROUP == 0 && rows.any { it.passed })
-    // sortedBy is stable: equal startup times retain the initial network ranking.
-    fun winners(rows: List<VideoMark>) = rows.filter { it.passed }.sortedBy { it.startMs }
+    // Rows follow the saved network ranking. Stable sorting retains that order on a tie.
+    fun winners(rows: List<VideoMark>) = rows.filter { it.passed }.distinctBy { it.name }.sortedBy { it.startMs }
+
+    fun decide(rows: List<VideoMark>, count: Int): VideoDecision {
+        val exhausted = rows.size >= count
+        if (!exhausted && (rows.isEmpty() || rows.size % GROUP != 0)) return VideoDecision.Continue
+        val passed = winners(rows)
+        return when {
+            passed.size >= MIN_PASSES -> VideoDecision.Apply(passed.first())
+            exhausted -> VideoDecision.KeepOriginal(passed.size)
+            else -> VideoDecision.Continue
+        }
+    }
 }
 
 // Wall time AND the media playhead must both advance. A first frame, a seek,

@@ -7,7 +7,7 @@ v.addEventListener('pause',function(){sv.state=2;});
 v.addEventListener('ended',function(){sv.state=0;});
 v.addEventListener('error',function(){sv.error=5;});
 kick=function(){v.play().catch(askForGesture);};
-v.addEventListener('canplay',function(){sv.ready=true;setTimeout(kick,svIndex===2?4500:100);},{once:true});
+v.addEventListener('canplay',function(){sv.ready=true;setTimeout(kick,svIndex===2?8500:svIndex===3?4500:100);},{once:true});
 readMedia=function(){sv.pos=v.currentTime;};
 if(svIndex===2 && svClip===0)sv.error=101;
 if(svIndex===4)sv.error=5;

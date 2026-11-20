@@ -1,7 +1,7 @@
 name: SV Pocket APK
 on:
   push:
-    branches: [feature/pocket-tv]
+    branches: [feature/pocket-tv, "feature/sv-video-*"]
   workflow_dispatch:
 permissions:
   contents: read
@@ -74,7 +74,7 @@ jobs:
       - uses: android-actions/setup-android@v4
       - uses: actions/checkout@v4
         with:
-          ref: 088603c0bae56ec4b73d17e66d7d79891fbdeadd
+          ref: 0bbbbbe16ac2d9fca894334b9ee6b72691be1084
           path: qa-previous
       - name: Compare progress with the previous release
         run: sudo python3 pocket-tv/tests/test_progress_equivalence.py qa-previous/pocket-tv/src/main/assets/pocket_bridge.sh --measure
@@ -112,7 +112,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: sv-pocket-1.2.8
+          name: sv-pocket-1.2.9
           path: |
             pocket-tv/build/outputs/apk/debug/*.apk
             pocket-tv/build/reports/

@@ -33,7 +33,7 @@ open class PocketApplication : Application() {
             val began = android.os.SystemClock.elapsedRealtime()
             fun logStep(result: String) {
                 val elapsed = android.os.SystemClock.elapsedRealtime() - began
-                main.post { appendLog("Видеотест: $action · $target · ${elapsed} мс · $result") }
+                main.post { appendLog("Команда модуля: $action · $target · ${elapsed} мс · $result") }
             }
             try { backend.videoTransition(action,run.id,run.catalog,run.original,target).also(::logStep) }
             catch (e: Exception) { logStep(failureDetails(e)); throw e }
@@ -412,6 +412,6 @@ open class PocketApplication : Application() {
             finally { main.post { busy = ""; if (updateOperation) updateRequested = false; notifyChanged(); finished() } }
         }
     }
-    fun diagnosticText(): String = "SV Pocket ${BuildConfig.VERSION_NAME}\nPocket ${module.version}\nСервис: ${module.service}\nСтратегия: ${module.selected}\nСессия: ${snapshot.id}\n${snapshot.headline()}\n${snapshot.completed}/${snapshot.total}\nВидеотест: ${video.run?.let { "${it.phase} · ${it.rows.size}/${it.queue.size} · ${it.message}" } ?: "не запускался"}\nОбновление: ${update.phase} v${update.version}\nБыстрый запуск: ${if (automaticFastStart) "автоматически" else "обычный"}; ${prefs.getString("fast_start_last", "автопроверка ещё не выполнялась")}\n\n$error\n\n$operationLog\n\n${update.detail}\n\n${fullLog.ifEmpty { snapshot.tail }}"
+    fun diagnosticText(): String = "SV Pocket ${BuildConfig.VERSION_NAME}\nPocket ${module.version}\nСервис: ${module.service}\nСтратегия: ${module.selected}\nСессия: ${snapshot.id}\n${snapshot.headline()}\n${snapshot.completed}/${snapshot.total}\nВидеотест: ${video.run?.diagnosticText() ?: "не запускался"}\nОбновление: ${update.phase} v${update.version}\nБыстрый запуск: ${if (automaticFastStart) "автоматически" else "обычный"}; ${prefs.getString("fast_start_last", "автопроверка ещё не выполнялась")}\n\n$error\n\n$operationLog\n\n${update.detail}\n\n${fullLog.ifEmpty { snapshot.tail }}"
     fun serviceLabel(status: String) = when (status) { "running" -> "включён"; "stopped" -> "выключен"; "degraded" -> "нужен перезапуск"; else -> "состояние неизвестно" }
 }

@@ -1,0 +1,3 @@
+# Diff context and upstream license texts are preserved verbatim.
+*.patch -whitespace
+COPYING-GPL-2.txt -whitespace

@@ -31,8 +31,8 @@ private class QaVideoBackend(private val dir: File) : PocketBackend {
     private val live=File(dir,"qa-live")
     private val sid=File(dir,"qa-session")
     private fun trace(s:String){File(dir,"qa-events").appendText(s+"\n")}
-    override fun inspect()=ModuleInfo("v72",if(live.exists() && live.readText()=="off") "stopped" else "running",
-        if(selected.exists()) selected.readText() else "BASE",names+"BASE",true,bootEnabled=true,versionCode=72,catalogId="qa-video",fastStart="on")
+    override fun inspect()=ModuleInfo("v73-sv1",if(live.exists() && live.readText()=="off") "stopped" else "running",
+        if(selected.exists()) selected.readText() else "BASE",names+"BASE",true,bootEnabled=true,versionCode=73,catalogId="qa-video",fastStart="on")
     override fun poll()=if(!sid.exists()) TestSnapshot() else TestSnapshot(sid.readText(),"completed",names.size,profile="youtube",
         results=names.mapIndexed { i,n -> ProbeResult(n,"OK",10-i,10,0,0,0,0) },restore="ok",catalogId="qa-video")
     override fun launchWithId(profile:String,id:String):String {sid.writeText(id);trace("network");return "@@ID $id"}

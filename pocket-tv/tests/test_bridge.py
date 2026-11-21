@@ -117,6 +117,25 @@ class BridgeTest(unittest.TestCase):
         self.assertEqual('running',(self.mod/'state').read_text().strip())
         self.assertIn('@@VIDEO changed',switch('try',original))
 
+    def test_stock73_results_cannot_switch_the_new_sv73_tester(self):
+        prop = self.mod / 'module.prop'
+        def edition(label):
+            prop.write_text(f'id=zapret\nauthor=sevcator\nversion={label}\nversionCode=73\n')
+            return next(l.split()[1] for l in self.call('inspect').stdout.splitlines() if l.startswith('@@CATALOG_ID '))
+        stock = edition('v73')
+        session = self.base / 'data/session'
+        session.mkdir(parents=True)
+        for key,val in {'id':'old','state':'completed','profile':'youtube','catalog-id':stock}.items():
+            (session/key).write_text(val+'\n')
+        sv = edition('v73-sv1')
+        self.assertNotEqual(stock, sv)
+        target = self.names[1]
+        self.assertEqual('@@VIDEO changed', self.call('video-transition','try','old',stock,'general',target).stdout.strip())
+        self.assertFalse((self.mod/'calls').exists())
+        (session/'catalog-id').write_text(sv+'\n')
+        self.assertEqual('@@VIDEO ready', self.call('video-transition','try','old',sv,'general',target).stdout.strip())
+        self.assertEqual('general', (self.mod/'config/current-strategy').read_text().strip())
+
     def test_catalog_selects_literal_name_and_restarts(self):
         out = self.call('inspect').stdout
         self.assertIn('@@COMPATIBLE 1', out)

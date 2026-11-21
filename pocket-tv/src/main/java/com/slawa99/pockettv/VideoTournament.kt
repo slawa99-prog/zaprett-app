@@ -95,7 +95,7 @@ internal class VideoTournament(context: Context, private val worker: Executor, p
             val why = when {
                 s.status != "completed" -> { armed = ""; return }
                 !s.matches(m) -> "Каталог изменился. Нужен новый подбор."
-                m.versionCode !in 71..72 -> "Для видеотеста нужен проверенный Pocket 71 или 72."
+                m.versionCode !in 71..73 -> "Для видеотеста нужен проверенный Pocket 71, 72 или 73."
                 candidates.isEmpty() -> "Нет проверенных кандидатов для видеотеста."
                 !PocketProtocol.safeName(m.selected) || m.selected !in m.strategies || m.service !in setOf("running","stopped") ->
                     "Сначала выберите исходную стратегию и проверьте состояние обхода."

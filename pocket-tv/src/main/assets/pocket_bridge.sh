@@ -79,7 +79,7 @@ stock_common=24498c2653ba009e6b090418d6d4f788650ef156d4a935332e38b8e375b41e36
 fast_common=368bc0d99c816790251048c74bd2d1782534af42267e4d629a3b062021a47a44
 file_hash() { sha256sum "$1" 2>/dev/null | awk '{print $1}'; }
 fast_start_mode() {
-    case "$(version_code "$MOD")" in 71|72) ;; *) echo unsupported; return;; esac
+    case "$(version_code "$MOD")" in 71|72|73) ;; *) echo unsupported; return;; esac
     if [ ! -f "$MOD/common.sh" ] || [ -L "$MOD/common.sh" ]; then echo unsupported; return; fi
     case "$(file_hash "$MOD/common.sh")" in
         "$stock_common") echo off;; "$fast_common") echo on;; *) echo unsupported;;
@@ -91,7 +91,7 @@ set_fast_start() (
     case "$1" in on|off) ;; *) fail 'Неизвестный режим запуска.';; esac
     mode=$(fast_start_mode)
     [ "$mode" != "$1" ] || exit 0
-    [ "$mode" != unsupported ] || fail 'Быстрый запуск доступен только для оригинального Pocket 71 или 72. Файлы не изменены.'
+    [ "$mode" != unsupported ] || fail 'Быстрый запуск доступен только для совместимого Pocket 71, 72 или 73. Файлы не изменены.'
     common="$MOD/common.sh"
     tmp=$(mktemp "$MOD/.sv-pocket-common.XXXXXX") || fail 'Не удалось подготовить изменение.'
     trap 'rm -f "$tmp"' EXIT
@@ -141,7 +141,11 @@ catalog_id() {
     directory="$(catalog_directory)"
     set --
     for f in "$directory/"*.sh; do [ ! -f "$f" ] || set -- "$@" "$f"; done
-    { sed -n 's/^versionCode=//p' "$MOD/module.prop"; [ "$#" -eq 0 ] || sha256sum "$@"; } | sha256sum | awk '{print $1}'
+    # Stock v73 and v73-sv1 have the same code and profiles but different
+    # testers. Keep the old 71/72 fingerprint; never rank stale v73 results.
+    { awk '/^versionCode=/{v=substr($0,13); print v} /^version=/{label=$0}
+           END{if (v=="73") print label}' "$MOD/module.prop"
+      [ "$#" -eq 0 ] || sha256sum "$@"; } | sha256sum | awk '{print $1}'
 }
 version_code() { [ ! -f "$1/module.prop" ] || sed -n 's/^versionCode=//p' "$1/module.prop" | tr -d '\r'; }
 update_in_progress() { [ "$(value "$UPDATE/state")" = installing ] && alive "$UPDATE/owner"; }
@@ -540,7 +544,7 @@ run_test() {
 }
 
 # A video trial changes the live service, not the strategy selected for the next boot.
-# Pocket 71/72 reads the selection when it starts; "strategy" alone does not restart it.
+# Pocket 71–73 reads the selection when it starts; "strategy" alone does not restart it.
 video_cli() (
     # Stock Pocket prints its selection prompt to stderr WITHOUT a newline.
     # su merges streams. Keep all CLI chatter (also from restart) off the
@@ -563,7 +567,7 @@ video_transition() {
     action=$1; session=$2; fingerprint=$3; original=$4; wanted=$5
     case "$action" in try|commit|restore-on|restore-off) ;; *) fail 'Неизвестная операция видеотеста.' ;; esac
     require_module; acquire; idle_required
-    case "$(version_code "$MOD")" in 71|72) ;; *) field VIDEO changed; return ;; esac
+    case "$(version_code "$MOD")" in 71|72|73) ;; *) field VIDEO changed; return ;; esac
     if [ -z "$session" ] || [ "$(value "$SESSION/id")" != "$session" ] ||
        [ "$(value "$SESSION/state")" != completed ] || [ "$(value "$SESSION/profile")" != youtube ] ||
        [ "$(value "$SESSION/catalog-id")" != "$fingerprint" ] || [ "$(catalog_id)" != "$fingerprint" ]; then

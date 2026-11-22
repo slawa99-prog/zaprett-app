@@ -74,7 +74,7 @@ jobs:
       - uses: android-actions/setup-android@v4
       - uses: actions/checkout@v4
         with:
-          ref: 7e06408e6cbf217aa2602e7a7f1b0203ba48575c
+          ref: 83e94332ad961aebd03c3c60852e1855a1c95d2e
           path: qa-previous
       - name: Compare progress with the previous release
         run: sudo python3 pocket-tv/tests/test_progress_equivalence.py qa-previous/pocket-tv/src/main/assets/pocket_bridge.sh --measure
@@ -97,6 +97,8 @@ jobs:
           echo '2e82b13d479dbdba86e91a9a243caa992f89303b9406dec703c6d2e9879d13f1  /tmp/pocket72-test.zip' | sha256sum -c -
           curl --fail --location --retry 3 --max-time 180 'https://github.com/sevcator/zapret-pocket/releases/download/73/zapret-pocket.zip' -o /tmp/pocket73-test.zip
           echo '14eff26b19b534a4ce9b68666fdc59beda585457781231463c51632151546536  /tmp/pocket73-test.zip' | sha256sum -c -
+          curl --fail --location --retry 3 --max-time 180 'https://github.com/sevcator/zapret-pocket/releases/download/74/zapret-pocket.zip' -o /tmp/pocket74-test.zip
+          echo 'afdcd6a48ba97d3e43192bbed3b654e3e0afded4e4cd0e586a936b382cc9a3c2  /tmp/pocket74-test.zip' | sha256sum -c -
       - name: Test remote navigation on Android 14
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -114,7 +116,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: sv-pocket-1.2.10
+          name: sv-pocket-1.2.11
           path: |
             pocket-tv/build/outputs/apk/debug/*.apk
             pocket-tv/build/reports/

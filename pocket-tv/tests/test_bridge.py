@@ -117,24 +117,29 @@ class BridgeTest(unittest.TestCase):
         self.assertEqual('running',(self.mod/'state').read_text().strip())
         self.assertIn('@@VIDEO changed',switch('try',original))
 
-    def test_stock73_results_cannot_switch_the_new_sv73_tester(self):
+    def test_video_needs_results_from_the_current_version_and_edition(self):
         prop = self.mod / 'module.prop'
-        def edition(label):
-            prop.write_text(f'id=zapret\nauthor=sevcator\nversion={label}\nversionCode=73\n')
+        def edition(code,label):
+            prop.write_text(f'id=zapret\nauthor=sevcator\nversion={label}\nversionCode={code}\n')
             return next(l.split()[1] for l in self.call('inspect').stdout.splitlines() if l.startswith('@@CATALOG_ID '))
-        stock = edition('v73')
+        old_stock,old_sv,stock,sv = (edition(code,label) for code,label in
+            ((73,'v73'),(73,'v73-sv1'),(74,'v74'),(74,'v74-sv1')))
+        self.assertEqual(4, len({old_stock,old_sv,stock,sv}))
         session = self.base / 'data/session'
         session.mkdir(parents=True)
-        for key,val in {'id':'old','state':'completed','profile':'youtube','catalog-id':stock}.items():
+        for key,val in {'id':'old','state':'completed','profile':'youtube'}.items():
             (session/key).write_text(val+'\n')
-        sv = edition('v73-sv1')
-        self.assertNotEqual(stock, sv)
         target = self.names[1]
-        self.assertEqual('@@VIDEO changed', self.call('video-transition','try','old',stock,'general',target).stdout.strip())
-        self.assertFalse((self.mod/'calls').exists())
+        for stale in (old_stock,old_sv,stock):
+            (session/'catalog-id').write_text(stale+'\n')
+            self.assertEqual('@@VIDEO changed', self.call('video-transition','try','old',stale,'general',target).stdout.strip())
+            self.assertFalse((self.mod/'calls').exists())
         (session/'catalog-id').write_text(sv+'\n')
         self.assertEqual('@@VIDEO ready', self.call('video-transition','try','old',sv,'general',target).stdout.strip())
         self.assertEqual('general', (self.mod/'config/current-strategy').read_text().strip())
+        future=edition(75,'v75')
+        (session/'catalog-id').write_text(future+'\n')
+        self.assertEqual('@@VIDEO changed', self.call('video-transition','try','old',future,'general',target).stdout.strip())
 
     def test_catalog_selects_literal_name_and_restarts(self):
         out = self.call('inspect').stdout

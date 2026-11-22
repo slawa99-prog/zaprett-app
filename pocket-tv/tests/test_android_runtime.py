@@ -127,7 +127,7 @@ esac
     push(PROJECT / 'src/main/assets/fast_network_wait.sh', DEVICE + '/fast.sh')
     # Test cold startup against complete, unmodified Pocket archives using real
     # Android ps/awk/sha256sum. No source or CLI of either module may be executed.
-    for version, stock_zip in [(71, release), (72, pathlib.Path('/tmp/pocket72-test.zip')), (73, pathlib.Path('/tmp/pocket73-test.zip'))]:
+    for version, stock_zip in [(71, release), (72, pathlib.Path('/tmp/pocket72-test.zip')), (73, pathlib.Path('/tmp/pocket73-test.zip')), (74, pathlib.Path('/tmp/pocket74-test.zip'))]:
         stock = tmp / f'stock-{version}'; stock.mkdir()
         with zipfile.ZipFile(stock_zip) as archive:
             for name in archive.namelist():
@@ -272,7 +272,7 @@ wait_for_internet
     note('Failed preflight preserves prior session and does not stop the service')
     # The APK merges both streams of su. Exercise the exact stock menu functions
     # on Android; service changes are modelled by a file, never by the stock CLI.
-    for version in (71, 72, 73):
+    for version in (71, 72, 73, 74):
         stock_cli = (tmp / f'stock-{version}/system/bin/zapret').read_text()
         def function(name):
             start = stock_cli.index(name + '() {')

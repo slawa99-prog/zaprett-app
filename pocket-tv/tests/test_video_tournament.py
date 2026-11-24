@@ -91,11 +91,22 @@ until(lambda:record().get('p')=='commit',240,'No winner reached the module')
 pending = record()
 names = set(pending['q']) | {'BASE'}
 winner = pending['o']
+def lower_rows_visible(titles):
+    visible = {t.partition('·')[0].strip() for t in titles}
+    return winner not in visible and bool(visible & {pending['q'][-1], pending['orig']})
+
+def open_focused_strategy():
+    key('DPAD_CENTER')
+    def dialog_title():
+        return next((n.get('text') for n in screen()
+                     if n.get('resource-id', '').endswith('/alertTitle') and n.get('text') in names), None)
+    return until(dialog_title, 10, 'OK did not open the focused strategy')
+
 try:
     key('DPAD_LEFT'); key('DPAD_RIGHT')
     for _ in range(len(names) + 2): key('DPAD_DOWN')
     before = visible_strategy_titles(names)
-    assert any(t.startswith('BASE') for t in before) and all(not t.startswith(winner) for t in before), before
+    assert lower_rows_visible(before), before
 finally:
     priv('rm', '-f', 'files/qa-hold-commit')
 until(lambda:record().get('p') in ('done','stopped','recover','paused'),30,'No terminal state')
@@ -114,15 +125,18 @@ def winner_at_top():
             and 'ЛУЧШАЯ ПО ВИДЕО' in titles[0] and 'ВЫБРАНА' in titles[0])
 until(winner_at_top,20,'Winner not visible as the first selected result')
 screenshot('video-results-qa.png')
-key('DPAD_CENTER')
-until(lambda: any(n.get('text') == best for n in screen()), 10, 'OK did not open the winner')
+assert open_focused_strategy() == best, 'OK did not open the winner'
 key('BACK')
 for _ in range(len(names) + 2): key('DPAD_DOWN')
 lower = visible_strategy_titles(names)
-assert any(t.startswith('BASE') for t in lower) and all(not t.startswith(best) for t in lower), lower
+assert lower_rows_visible(lower), lower
+manual_choice = open_focused_strategy()
+key('BACK')
 key('HOME')
 sh('am','start','-W','--activity-single-top','-n',PKG+'/.MainActivity')
-until(lambda: visible_strategy_titles(names) == lower, 15, 'Status refresh lost the manual scroll position')
+until(lambda: lower_rows_visible(visible_strategy_titles(names)), 15, 'Status refresh lost the manual scroll position')
+assert open_focused_strategy() == manual_choice, 'Status refresh moved the remote focus'
+key('BACK')
 note('Winner revealed at the top after a scrolled commit. Remote OK opened it; manual scrolling survived foreground refresh.')
 sh('am','force-stop',PKG);launch();open_tests()
 assert record()['win']==best

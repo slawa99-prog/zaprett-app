@@ -74,7 +74,7 @@ jobs:
       - uses: android-actions/setup-android@v4
       - uses: actions/checkout@v4
         with:
-          ref: 83e94332ad961aebd03c3c60852e1855a1c95d2e
+          ref: 3e1f0d1ec0371208faaa33157eb0142498ae5334
           path: qa-previous
       - name: Compare progress with the previous release
         run: sudo python3 pocket-tv/tests/test_progress_equivalence.py qa-previous/pocket-tv/src/main/assets/pocket_bridge.sh --measure
@@ -116,7 +116,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: sv-pocket-1.2.11
+          name: sv-pocket-1.2.12
           path: |
             pocket-tv/build/outputs/apk/debug/*.apk
             pocket-tv/build/reports/

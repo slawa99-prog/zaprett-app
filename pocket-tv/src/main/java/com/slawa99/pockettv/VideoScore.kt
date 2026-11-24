@@ -19,7 +19,7 @@ internal sealed interface VideoDecision {
 
 internal object VideoRank {
     const val GROUP = 5
-    const val MIN_PASSES = 3
+    const val MIN_PASSES = 5
     fun candidates(s: TestSnapshot, m: ModuleInfo): List<String> =
         if (s.status != "completed" || s.profile != "youtube" || s.restore == "failed" || !s.matches(m)) emptyList()
         else s.ranked.filter { it.status == "OK" && it.total > 0 && it.name in m.strategies && PocketProtocol.safeName(it.name) }

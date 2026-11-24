@@ -81,16 +81,16 @@ priv('sh','-c','mkdir -p files && touch files/qa-video-fixture')
 launch();open_tests();tap('Подбор: YouTube');tap('Начать подбор')
 until(lambda:record().get('p')=='playing',35,'Player never opened')
 time.sleep(3);screenshot('video-visible-qa.png')
-until(lambda:record().get('p') in ('done','stopped','recover','paused'),175,'No terminal state')
+until(lambda:record().get('p') in ('done','stopped','recover','paused'),240,'No terminal state')
 v=record();events=data('qa-events')
 passes=[x for x in v['rows'] if x[1]=='pass']
 best=min(passes,key=lambda x:x[2])[0]
 assert v['p']=='done' and v['win']==best and data('qa-selection')==best,(v,events)
-assert [x[0] for x in passes]==['B-slow','C-mid','F-late'] and len(v['rows'])==7,(v,events)
-assert events.splitlines()[-2:]==['try G-reserve','commit '+best],events
+assert [x[0] for x in passes]==['B-slow','C-mid','E','F-late','G-reserve'] and len(v['rows'])==8,(v,events)
+assert events.splitlines()[-2:]==['try H-last','commit '+best],events
 assert any(row[:2]==['D','player_error'] for row in v['rows']),v
 assert v['clip']==1 and '101' in v['firstClipError'] and events.count('try B-slow')==2,(v,events)
-note('Two passes in the first five, a third in the partial second group. Remaining candidate was tried; the fastest of all three was applied. '+str(v['rows']))
+note('Three passes in the first five. Candidates six and seven also passed, then candidate eight was tried before committing the fastest of five. '+str(v['rows']))
 screenshot('video-results-qa.png')
 sh('am','force-stop',PKG);launch();open_tests()
 assert record()['win']==best
@@ -105,11 +105,11 @@ launch();open_tests();tap('Подбор: YouTube');tap('Продолжить в�
 until(lambda:record().get('p') in ('playing','switch','ready'),35,'Could not resume next group')
 until(lambda:record().get('p') in ('done','stopped','recover','paused'),95,'Second group never finished')
 v=record()
-assert v['p']=='stopped' and not v['win'] and len(v['rows'])==7 and data('qa-live')==data('qa-selection')==best,v
+assert v['p']=='stopped' and not v['win'] and len(v['rows'])==8 and data('qa-live')==data('qa-selection')==best,v
 assert [row[0] for row in v['rows'] if row[1]=='pass']==['G-reserve'],v
 assert 'вручную' in v['msg'] and data('qa-events').splitlines().count('network')==1,v
 assert [line for line in data('qa-events').splitlines() if line.startswith('commit ')]==['commit '+best]
-note('One pass across all seven candidates: no second commit, previous winner restored, manual result retained; no network rerun.')
+note('One pass across eight candidates. No second commit, previous winner restored, manual result retained, no network rerun.')
 # Upstream YouTube is outside CI control. Do not silently substitute local media
 # or label a blocked embed, timeout or rate limit as a successful real playback.
 sh('am','force-stop',PKG); priv('touch','files/qa-real-player')

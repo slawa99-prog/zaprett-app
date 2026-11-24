@@ -1,4 +1,4 @@
-"""Real Android package replacement; do not start 1.2.11, send the broadcast or force its job."""
+"""Real Android package replacement; do not start 1.2.12, send the broadcast or force its job."""
 from pathlib import Path
 import shlex
 import subprocess
@@ -43,7 +43,7 @@ def note(msg):
 def old_install():
     adb('uninstall', PKG, check=False)
     assert 'Success' in adb('install', PREVIOUS)
-    assert 'versionCode=16 ' in shell('dumpsys', 'package', PKG)
+    assert 'versionCode=17 ' in shell('dumpsys', 'package', PKG)
     shell('am', 'start', '-W', '-n', PKG+'/.MainActivity')
     shell('input', 'keyevent', 'KEYCODE_HOME')
     shell('am', 'kill', PKG)  # force-stop would intentionally suppress background work.
@@ -52,7 +52,7 @@ def old_install():
 
 def replaced(apk):
     assert 'Success' in adb('install', '-r', apk)
-    assert 'versionCode=17 ' in shell('dumpsys', 'package', PKG)
+    assert 'versionCode=18 ' in shell('dumpsys', 'package', PKG)
     deadline = time.monotonic() + 90
     while time.monotonic() < deadline:
         data = prefs()
@@ -74,10 +74,10 @@ REPORT.write_text('')
 old_install()
 result = replaced(CURRENT)  # No grant for the production app on this AOSP emulator.
 assert 'не применён' in result or 'нет активного модуля' in result, result
-note('Shipped variant: real 1.2.10 → 1.2.11 replacement; closed app ran once, handled unavailable root/module, retained data.')
+note('Shipped variant: real 1.2.11 → 1.2.12 replacement; closed app ran once, handled unavailable root/module, retained data.')
 old_install()
 result = replaced(QA)
 assert result == 'После обновления APK — включён', result
 assert priv('cat', 'files/qa-mode').strip() == 'on'
-note('Grant fixture: real 1.2.10 → 1.2.11 replacement enabled fast mode without opening the new UI or forcing a job.')
+note('Grant fixture: real 1.2.11 → 1.2.12 replacement enabled fast mode without opening the new UI or forcing a job.')
 adb('uninstall', PKG)

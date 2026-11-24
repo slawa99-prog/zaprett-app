@@ -26,7 +26,7 @@ class UpgradeQaApplication : PocketApplication() {
 
 // Test boundaries for the native module, confined to this non-delivery build type.
 private class QaVideoBackend(private val dir: File) : PocketBackend {
-    private val names = listOf("A-network-first","B-slow","C-mid","D","E","F-late","G-reserve")
+    private val names = listOf("A-network-first","B-slow","C-mid","D","E","F-late","G-reserve","H-last")
     private val selected=File(dir,"qa-selection")
     private val live=File(dir,"qa-live")
     private val sid=File(dir,"qa-session")
@@ -44,7 +44,14 @@ private class QaVideoBackend(private val dir: File) : PocketBackend {
         check(session==sid.readText() && catalog=="qa-video")
         trace("$action $target")
         return when(action){
-            "try" -> if(target in (when { File(dir,"qa-real-player").exists() -> listOf("B-slow"); File(dir,"qa-second-group").exists() -> listOf("G-reserve"); else -> listOf("B-slow","C-mid","D","F-late") })) { live.writeText(target); "ready" } else "no_service"
+            "try" -> {
+                val available = when {
+                    File(dir,"qa-real-player").exists() -> listOf("B-slow")
+                    File(dir,"qa-second-group").exists() -> listOf("G-reserve")
+                    else -> listOf("B-slow","C-mid","D","E","F-late","G-reserve")
+                }
+                if (target in available) { live.writeText(target); "ready" } else "no_service"
+            }
             "commit" -> {selected.writeText(target);live.writeText(target);"committed"}
             else -> {selected.writeText(original);live.writeText(if(action=="restore-off") "off" else original);"restored"}
         }

@@ -9,25 +9,28 @@ class VideoScoreTest {
         return (1..size).map { i -> times[i]?.let { VideoMark("n$i","pass",it) } ?: VideoMark("n$i","timeout") }
     }
     @Test fun sparseSuccessesSpanGroupsAndTheLastCandidateCanStillWin() {
-        val run = rows(15, 3 to 4100L, 8 to 3700L, 12 to 2200L, 15 to 900L)
+        val run = rows(15, 3 to 4100L, 8 to 3700L, 10 to 3300L, 11 to 2800L, 12 to 2200L, 15 to 900L)
         for (n in 0 until run.size) assertEquals("after $n",VideoDecision.Continue,VideoRank.decide(run.take(n),300))
         assertEquals(VideoDecision.Apply(run.last()),VideoRank.decide(run,300))
     }
     @Test fun firstFiveCanBeEnoughAndTiesRetainNetworkOrderAcrossGroups() {
-        val first = rows(5, 1 to 1500L, 2 to 1300L, 3 to 2200L, 5 to 1300L)
-        assertEquals(VideoDecision.Continue,VideoRank.decide(first.take(3),300))
+        val first = rows(5, 1 to 1500L, 2 to 1300L, 3 to 2200L, 4 to 1800L, 5 to 1300L)
+        assertEquals(VideoDecision.Continue,VideoRank.decide(first.take(4),300))
         assertEquals(VideoDecision.Apply(first[1]),VideoRank.decide(first,300))
-        val across = rows(7, 1 to 1000L, 6 to 1300L, 7 to 1000L)
+        val across = rows(7, 1 to 1000L, 2 to 1500L, 3 to 1700L, 6 to 1300L, 7 to 1000L)
+        assertEquals(VideoDecision.Continue,VideoRank.decide(across.take(5),7))
         assertEquals(VideoDecision.Apply(across.first()),VideoRank.decide(across,7))
     }
-    @Test fun exhaustingTheQueueWithLessThanThreeDistinctPassesKeepsOriginal() {
-        for (n in 0..2) {
+    @Test fun exhaustingTheQueueWithFewerThanFiveDistinctPassesKeepsOriginal() {
+        for (n in 0..4) {
             val short = rows(8, *(1..n).map { it to 1300L }.toTypedArray())
             assertEquals(VideoDecision.KeepOriginal(n),VideoRank.decide(short,8))
             assertEquals(n,VideoRank.winners(short).size) // retained for manual selection
         }
-        val repeated = listOf(VideoMark("same","pass",300),VideoMark("same","pass",400),VideoMark("other","pass",700))
-        assertEquals(VideoDecision.KeepOriginal(2),VideoRank.decide(repeated,3))
+        val four = rows(4, 1 to 300L, 2 to 400L, 3 to 500L, 4 to 700L)
+        val repeated = four + four.first()
+        assertEquals(VideoDecision.Continue,VideoRank.decide(repeated,10))
+        assertEquals(VideoDecision.KeepOriginal(4),VideoRank.decide(repeated,5))
     }
     @Test fun exportedReportSeparatesPlayerEvidenceFromModuleTimings() {
         val marks=listOf(VideoMark("A","no_service"),VideoMark("B","timeout",detail="0 с видео"),VideoMark("C","pass",1613))

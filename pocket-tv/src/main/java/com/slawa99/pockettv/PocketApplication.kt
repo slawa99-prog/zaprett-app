@@ -38,6 +38,12 @@ open class PocketApplication : Application() {
             try { backend.videoTransition(action,run.id,run.catalog,run.original,target).also(::logStep) }
             catch (e: Exception) { logStep(failureDetails(e)); throw e }
         },{ refreshState ->
+            if (refreshState) {
+                val result = video.run
+                if (result?.phase == "done" && video.matches(snapshot, module)) {
+                    module = module.copy(selected = result.winner)
+                }
+            }
             notifyChanged()
             if (refreshState) refresh()
         })

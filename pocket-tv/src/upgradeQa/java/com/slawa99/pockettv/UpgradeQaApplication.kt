@@ -52,7 +52,16 @@ private class QaVideoBackend(private val dir: File) : PocketBackend {
                 }
                 if (target in available) { live.writeText(target); "ready" } else "no_service"
             }
-            "commit" -> {selected.writeText(target);live.writeText(target);"committed"}
+            "commit" -> {
+                // The remote-navigation test scrolls the old list before the module acknowledges the winner.
+                val hold = File(dir,"qa-hold-commit")
+                val deadline = android.os.SystemClock.elapsedRealtime() + 90_000
+                while (hold.exists()) {
+                    check(android.os.SystemClock.elapsedRealtime() < deadline) { "Timed out waiting for the test remote" }
+                    Thread.sleep(100)
+                }
+                selected.writeText(target); live.writeText(target); "committed"
+            }
             else -> {selected.writeText(original);live.writeText(if(action=="restore-off") "off" else original);"restored"}
         }
     }

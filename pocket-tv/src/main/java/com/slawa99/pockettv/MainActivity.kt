@@ -38,6 +38,9 @@ class MainActivity : Activity() {
     private val backStack = mutableListOf<Int>()
     private val focusByPage = mutableMapOf<Int, String>()
     private val selectionByPage = mutableMapOf<Int, Int>()
+    // A video-only retest reuses the network session ID and may elect the same winner.
+    // Each completion produces a new immutable VideoRun, retained across status refreshes.
+    private val shownVideoResultByPage = mutableMapOf<Int, VideoRun>()
     private fun navigationButton() = nav[when (page) { 0 -> 0; 5 -> 1; else -> 2 }]
     private fun rememberPosition() {
         if (!nav.contains(currentFocus)) (currentFocus?.tag as? String)?.let { focusByPage[page] = it }
@@ -719,6 +722,7 @@ class MainActivity : Activity() {
         val ranked = app.snapshot.ranked
         val checked = ranked.map { it.name }.toSet()
         val run=app.video.run?.takeIf { app.video.matches(app.snapshot,app.module) }
+        val completed = run?.takeIf { it.phase == "done" && it.winner.isNotEmpty() }
         val marks=run?.rows?.associateBy{it.name}.orEmpty()
         val rows=(ranked.map {
             val mark=marks[it.name];val badge=when {
@@ -727,14 +731,22 @@ class MainActivity : Activity() {
                 else -> ""
             };Row(it.name,it,mark,badge)
         } + app.module.strategies.filter { it !in checked }.map { Row(it) })
-            .sortedBy { if(it.video?.passed==true) it.video.startMs else Long.MAX_VALUE }
-        if (adapter.rows == rows && adapter.selected == app.module.selected && adapter.current == app.snapshot.current && adapter.running == app.snapshot.active) return
-        val focusedName = if (lv.hasFocus()) adapter.rows.getOrNull(lv.selectedItemPosition)?.name else null
+            .sortedWith(compareBy<Row> { it.name != completed?.winner }
+                .thenBy { if (it.video?.passed == true) it.video.startMs else Long.MAX_VALUE })
+        val reveal = completed?.takeIf { shownVideoResultByPage[page] !== it && rows.firstOrNull()?.name == it.winner }
+        if (reveal == null && adapter.rows == rows && adapter.selected == app.module.selected && adapter.current == app.snapshot.current && adapter.running == app.snapshot.active) return
+        val focusWinner = adapter.rows.isNotEmpty() && resumed && hasWindowFocus() && !nav.contains(currentFocus)
+        val focusedName = if (reveal == null && lv.hasFocus()) adapter.rows.getOrNull(lv.selectedItemPosition)?.name else null
         adapter.rows = rows; adapter.selected = app.module.selected; adapter.current = app.snapshot.current; adapter.running = app.snapshot.active
         adapter.notifyDataSetChanged()
-        if (focusedName != null) {
+        if (reveal != null) {
+            shownVideoResultByPage[page] = reveal
+            selectionByPage[page] = 0
+            if (focusWinner) lv.requestFocus()
+            lv.setSelectionFromTop(0, 0)
+        } else if (focusedName != null) {
             val pos = rows.indexOfFirst { it.name == focusedName }
-            if (pos >= 0) lv.setSelection(pos)
+            if (pos >= 0 && pos != lv.selectedItemPosition) lv.setSelection(pos)
         }
     }
     private inner class StrategyAdapter : BaseAdapter() {

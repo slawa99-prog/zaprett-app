@@ -40,6 +40,12 @@ def screen():
     sh('uiautomator','dump','/sdcard/svp-video-window.xml',check=False)
     try:return list(ET.fromstring(sh('cat','/sdcard/svp-video-window.xml',check=False)).iter('node'))
     except ET.ParseError:return []
+def visible_strategy_titles(names):
+    container = next((n for n in screen() if n.get('class') == 'android.widget.ListView'), None)
+    if container is None:
+        return []
+    titles = [n.get('text', '') for n in container.iter('node')]
+    return [t for t in titles if t.partition('·')[0].strip() in names]
 def focus(label, directions):
     target=label.casefold(); seen=[]
     for direction in [*directions,None]:
@@ -77,11 +83,22 @@ sh('settings','put','system','user_rotation','0')
 sh('wm','size','1920x1080');sh('wm','density','320')
 adb('uninstall',PKG,check=False)
 assert 'Success' in adb('install',QA)
-priv('sh','-c','mkdir -p files && touch files/qa-video-fixture')
+priv('sh','-c','mkdir -p files && touch files/qa-video-fixture files/qa-hold-commit')
 launch();open_tests();tap('Подбор: YouTube');tap('Начать подбор')
 until(lambda:record().get('p')=='playing',35,'Player never opened')
 time.sleep(3);screenshot('video-visible-qa.png')
-until(lambda:record().get('p') in ('done','stopped','recover','paused'),240,'No terminal state')
+until(lambda:record().get('p')=='commit',240,'No winner reached the module')
+pending = record()
+names = set(pending['q']) | {'BASE'}
+winner = pending['o']
+try:
+    key('DPAD_LEFT'); key('DPAD_RIGHT')
+    for _ in range(len(names) + 2): key('DPAD_DOWN')
+    before = visible_strategy_titles(names)
+    assert any(t.startswith('BASE') for t in before) and all(not t.startswith(winner) for t in before), before
+finally:
+    priv('rm', '-f', 'files/qa-hold-commit')
+until(lambda:record().get('p') in ('done','stopped','recover','paused'),30,'No terminal state')
 v=record();events=data('qa-events')
 passes=[x for x in v['rows'] if x[1]=='pass']
 best=min(passes,key=lambda x:x[2])[0]
@@ -91,7 +108,22 @@ assert events.splitlines()[-2:]==['try H-last','commit '+best],events
 assert any(row[:2]==['D','player_error'] for row in v['rows']),v
 assert v['clip']==1 and '101' in v['firstClipError'] and events.count('try B-slow')==2,(v,events)
 note('Three passes in the first five. Candidates six and seven also passed, then candidate eight was tried before committing the fastest of five. '+str(v['rows']))
+def winner_at_top():
+    titles = visible_strategy_titles(names)
+    return (titles and titles[0].partition('·')[0].strip() == best
+            and 'ЛУЧШАЯ ПО ВИДЕО' in titles[0] and 'ВЫБРАНА' in titles[0])
+until(winner_at_top,20,'Winner not visible as the first selected result')
 screenshot('video-results-qa.png')
+key('DPAD_CENTER')
+until(lambda: any(n.get('text') == best for n in screen()), 10, 'OK did not open the winner')
+key('BACK')
+for _ in range(len(names) + 2): key('DPAD_DOWN')
+lower = visible_strategy_titles(names)
+assert any(t.startswith('BASE') for t in lower) and all(not t.startswith(best) for t in lower), lower
+key('HOME')
+sh('am','start','-W','--activity-single-top','-n',PKG+'/.MainActivity')
+until(lambda: visible_strategy_titles(names) == lower, 15, 'Status refresh lost the manual scroll position')
+note('Winner revealed at the top after a scrolled commit. Remote OK opened it; manual scrolling survived foreground refresh.')
 sh('am','force-stop',PKG);launch();open_tests()
 assert record()['win']==best
 tap('Подбор: YouTube');tap('Только видеотест')

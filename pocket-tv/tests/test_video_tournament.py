@@ -91,9 +91,20 @@ until(lambda:record().get('p')=='commit',240,'No winner reached the module')
 pending = record()
 names = set(pending['q']) | {'BASE'}
 winner = pending['o']
+passed_names = {row[0] for row in pending['rows'] if row[1] == 'pass'}
+assert winner in passed_names, pending
+
 def lower_rows_visible(titles):
     visible = {t.partition('·')[0].strip() for t in titles}
-    return winner not in visible and bool(visible & {pending['q'][-1], pending['orig']})
+    return winner not in visible and bool(visible - passed_names)
+
+def scroll_below_winner():
+    for _ in range(len(names) + 4):
+        key('DPAD_DOWN')
+        titles = visible_strategy_titles(names)
+        if lower_rows_visible(titles):
+            return
+    raise AssertionError('Remote did not scroll past the winner: ' + repr(titles))
 
 def open_focused_strategy():
     key('DPAD_CENTER')
@@ -104,9 +115,7 @@ def open_focused_strategy():
 
 try:
     key('DPAD_LEFT'); key('DPAD_RIGHT')
-    for _ in range(len(names) + 2): key('DPAD_DOWN')
-    before = visible_strategy_titles(names)
-    assert lower_rows_visible(before), before
+    scroll_below_winner()
 finally:
     priv('rm', '-f', 'files/qa-hold-commit')
 until(lambda:record().get('p') in ('done','stopped','recover','paused'),30,'No terminal state')
@@ -127,10 +136,9 @@ until(winner_at_top,20,'Winner not visible as the first selected result')
 screenshot('video-results-qa.png')
 assert open_focused_strategy() == best, 'OK did not open the winner'
 key('BACK')
-for _ in range(len(names) + 2): key('DPAD_DOWN')
-lower = visible_strategy_titles(names)
-assert lower_rows_visible(lower), lower
+scroll_below_winner()
 manual_choice = open_focused_strategy()
+assert manual_choice != best, manual_choice
 key('BACK')
 key('HOME')
 sh('am','start','-W','--activity-single-top','-n',PKG+'/.MainActivity')
